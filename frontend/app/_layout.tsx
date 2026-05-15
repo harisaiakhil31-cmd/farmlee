@@ -13,7 +13,11 @@ export default function RootLayout() {
           <Stack.Screen name="login" />
           <Stack.Screen name="verify-otp" />
           <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="checks/daily" options={{ presentation: "modal" }} />
+          <Stack.Screen name="checks/tanks" options={{ presentation: "modal" }} />
+          <Stack.Screen name="checks/environment" options={{ presentation: "modal" }} />
+          <Stack.Screen name="checks/field" options={{ presentation: "modal" }} />
+          <Stack.Screen name="checks/report" options={{ presentation: "modal" }} />
+          <Stack.Screen name="checks/audit" options={{ presentation: "modal" }} />
           <Stack.Screen name="checks/weekly" options={{ presentation: "modal" }} />
           <Stack.Screen name="checks/monthly" options={{ presentation: "modal" }} />
           <Stack.Screen name="reminder-new" options={{ presentation: "modal" }} />

@@ -81,26 +81,16 @@ export default function Dashboard() {
         {/* Quick actions - bento */}
         <Text style={styles.section}>Quick checks</Text>
         <View style={styles.bento}>
-          <ActionCard
-            testID="action-daily"
-            tint="#E8EFD8" icon="water" label="Daily" sub="pH · EC · Temp"
-            onPress={() => router.push("/checks/daily")}
-          />
-          <ActionCard
-            testID="action-weekly"
-            tint="#F3E4D6" icon="construct" label="Weekly" sub="Calibration · Filters"
-            onPress={() => router.push("/checks/weekly")}
-          />
-          <ActionCard
-            testID="action-monthly"
-            tint="#DFE8EE" icon="cube" label="Monthly" sub="Tanks · Orders"
-            onPress={() => router.push("/checks/monthly")}
-          />
-          <ActionCard
-            testID="action-reminder"
-            tint="#EDE4F2" icon="alarm" label="Reminder" sub="Add custom note"
-            onPress={() => router.push("/reminder-new")}
-          />
+          <ActionCard testID="action-tanks" tint="#E8EFD8" icon="water" label="Tank reading" sub="4 tanks · AM/Eve · pH/EC/T" onPress={() => router.push("/checks/tanks")} />
+          <ActionCard testID="action-env" tint="#FFEFE0" icon="thermometer" label="Environment" sub="Morning/Aft/Eve avg" onPress={() => router.push("/checks/environment")} />
+          <ActionCard testID="action-field" tint="#F3E4D6" icon="leaf" label="Field tasks" sub="Seedling · Pest · Leaves" onPress={() => router.push("/checks/field")} />
+          <ActionCard testID="action-weekly" tint="#DFE8EE" icon="construct" label="Weekly" sub="Calibration · Filters" onPress={() => router.push("/checks/weekly")} />
+          <ActionCard testID="action-monthly" tint="#E5E0D8" icon="cube" label="Monthly" sub="Tanks · A/B/C · Seeds" onPress={() => router.push("/checks/monthly")} />
+          <ActionCard testID="action-report" tint="#EDE4F2" icon="stats-chart" label="Weekly report" sub="7-day summary" onPress={() => router.push("/checks/report")} />
+          <ActionCard testID="action-reminder" tint="#FFF4EC" icon="alarm" label="Reminder" sub="Add custom note" onPress={() => router.push("/reminder-new")} />
+          {user?.role === "admin" && (
+            <ActionCard testID="action-audit" tint="#FCE4E1" icon="shield-checkmark" label="Audit log" sub="Admin · login history" onPress={() => router.push("/checks/audit")} />
+          )}
         </View>
 
         {/* Last reading */}
