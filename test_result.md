@@ -101,3 +101,118 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: |
+  HydroManager: hydroponics farm operations app for 3 users with email-OTP 2FA.
+  Latest scope: add Excel (.xlsx) export for Tanks, Environment, Field, Weekly, Monthly
+  reports — with preset and custom date ranges, accessible by all 3 users, saved to
+  device storage (Android Downloads / iOS share sheet).
+
+backend:
+  - task: "Excel export endpoints (/api/export/{tanks|environment|field|weekly|monthly})"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Added 5 new authenticated GET endpoints producing xlsx via openpyxl
+          StreamingResponse. Supports optional `start` and `end` (YYYY-MM-DD) query
+          params. Auto-sized columns, friendly headers, "Yes/No" booleans, formatted
+          datetimes. Environment endpoint includes second sheet with daily averages.
+          Manually verified `/api/export/tanks` returns a valid 5.3KB xlsx with proper
+          headers via curl + openpyxl load_workbook.
+      - working: true
+        agent: "testing"
+        comment: |
+          Comprehensive backend test executed via /app/backend_test.py against
+          https://hydro-check-log.preview.emergentagent.com/api. Result: 53/53 PASS.
+          Verified for ALL 5 endpoints (tanks, environment, field, weekly, monthly):
+            * Unauthenticated request -> 401 (HTTPBearer auto_error=False but raises
+              "Missing token" in current_user dep) ✓
+            * Authenticated GET with start/end -> 200 ✓
+            * Content-Type = application/vnd.openxmlformats-officedocument.spreadsheetml.sheet ✓
+            * Content-Disposition has filename '<Report>_<start>_to_<end>.xlsx' ✓
+            * Valid xlsx loads with openpyxl ✓
+            * Sheet titles & header rows match spec exactly:
+              - tanks: 'Tank Readings' with 16 headers (Date..Created At) ✓
+              - environment: 'Environment' (8 cols) + 'Daily Averages' (4 cols) ✓
+              - field: 'Field Tasks' with 11 cols incl. Seedling Watered, Pest Check ✓
+              - weekly: 'Weekly Checks' with 8 cols incl. Meter Calibration, Nutrition Qty OK ✓
+              - monthly: 'Monthly Checks' with 13 cols incl. Solution A Qty, Seeds Ordered ✓
+            * GET without start/end params -> still 200 with valid xlsx (no 500) ✓
+            * Seeded records (via POST /tanks/reading, /environment/reading,
+              /field/tasks, /checks/weekly, /checks/monthly) appear in exported files ✓
+          No backend modifications were required. Endpoints are working correctly.
+
+  - task: "Admin audit log with extra OTP (/api/admin/audit/request-otp + verify)"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Already present in server.py; uses purpose='audit' OTPs valid 10 min."
+
+frontend:
+  - task: "Excel export UI on Reports screen with date presets + native share"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/checks/report.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Added Export to Excel section with FROM/TO dates, 6 presets (This week,
+          Last week, Last 7 / 30 days, This month, Last month) and 5 download rows.
+          Uses axios responseType=arraybuffer, manual base64 conversion, then
+          FileSystem.writeAsStringAsync + Sharing.shareAsync (mobile) or Blob+anchor
+          (web). User awaits to test frontend explicitly.
+
+metadata:
+  created_by: "main_agent"
+  version: "1.1"
+  test_sequence: 2
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Excel export endpoints (/api/export/{tanks|environment|field|weekly|monthly})"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Implemented Excel export feature. Please test the 5 new GET endpoints:
+        /api/export/tanks, /environment, /field, /weekly, /monthly
+      All require Bearer auth. Optional query params: start, end (YYYY-MM-DD).
+      Verify: HTTP 200, content-type xlsx, content-disposition has correct filename,
+      file opens with openpyxl, expected sheet names and headers exist.
+      Auth: akhilharisai@gmail.com / Admin@123 — OTP returned as dev_otp on /auth/login.
+  - agent: "testing"
+    message: |
+      Backend testing complete for Excel export endpoints. 53/53 assertions PASS.
+      Test harness: /app/backend_test.py (uses requests + openpyxl against the
+      public REACT_APP_BACKEND_URL). For each of /api/export/{tanks,environment,
+      field,weekly,monthly}: validated auth gate (401 without token), 200 with
+      Bearer token, xlsx MIME type, Content-Disposition filename pattern
+      "<Report>_<start>_to_<end>.xlsx", workbook loads with openpyxl, sheet names
+      and headers match the spec exactly (tanks=16 cols, environment 8+4 cols on
+      two sheets, field=11 cols, weekly=8 cols, monthly=13 cols), GET without
+      start/end still returns valid xlsx (no 500), and seeded rows from POST
+      /tanks/reading, /environment/reading, /field/tasks, /checks/weekly,
+      /checks/monthly are present in the exported files. No code changes made.
+      Backend export feature is working correctly — main agent can summarize and
+      finish. Frontend testing was NOT performed.

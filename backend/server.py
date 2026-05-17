@@ -24,6 +24,9 @@ from datetime import datetime, timezone, timedelta
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from openpyxl import Workbook
+from io import BytesIO
+from fastapi.responses import StreamingResponse
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -515,6 +518,139 @@ async def shutdown():
     try: scheduler.shutdown(wait=False)
     except: pass
     client.close()
+
+
+# ---------- EXCEL EXPORT ----------
+def _autosize(ws):
+    for col in ws.columns:
+        try:
+            letter = col[0].column_letter
+            max_len = max((len(str(c.value)) if c.value is not None else 0) for c in col)
+            ws.column_dimensions[letter].width = min(max(max_len + 2, 10), 40)
+        except Exception:
+            pass
+
+def _xlsx_response(wb: Workbook, filename: str) -> StreamingResponse:
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+def _date_filter(start: Optional[str], end: Optional[str]):
+    q = {}
+    if start and end: q["check_date"] = {"$gte": start, "$lte": end}
+    elif start: q["check_date"] = {"$gte": start}
+    elif end: q["check_date"] = {"$lte": end}
+    return q
+
+def _fmt_dt(v):
+    if isinstance(v, datetime):
+        try: return v.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        except: return v.isoformat()
+    return v
+
+@api.get("/export/tanks")
+async def export_tanks(start: Optional[str] = None, end: Optional[str] = None, user=Depends(current_user)):
+    rows = await db.tank_readings.find(_date_filter(start, end), {"_id": 0}).sort("created_at", 1).to_list(10000)
+    wb = Workbook(); ws = wb.active; ws.title = "Tank Readings"
+    headers = ["Date","Time","Session","Tank","pH","pH Target Min","pH Target Max",
+               "EC","EC Target Min","EC Target Max","Temp (°C)","Temp Target Min","Temp Target Max",
+               "Notes","Recorded By","Created At"]
+    ws.append(headers)
+    for r in rows:
+        ws.append([
+            r.get("check_date",""), r.get("check_time",""), r.get("session",""), r.get("tank_id",""),
+            r.get("ph_actual"), r.get("ph_target_min"), r.get("ph_target_max"),
+            r.get("ec_actual"), r.get("ec_target_min"), r.get("ec_target_max"),
+            r.get("temp_actual"), r.get("temp_target_min"), r.get("temp_target_max"),
+            r.get("notes",""), r.get("user_name",""), _fmt_dt(r.get("created_at"))
+        ])
+    _autosize(ws)
+    fn = f"Tanks_{start or 'all'}_to_{end or 'all'}.xlsx"
+    return _xlsx_response(wb, fn)
+
+@api.get("/export/environment")
+async def export_environment(start: Optional[str] = None, end: Optional[str] = None, user=Depends(current_user)):
+    rows = await db.environment_readings.find(_date_filter(start, end), {"_id": 0}).sort("created_at", 1).to_list(10000)
+    wb = Workbook(); ws = wb.active; ws.title = "Environment"
+    ws.append(["Date","Time","Session","Temperature (°C)","Humidity (%)","Notes","Recorded By","Created At"])
+    for r in rows:
+        ws.append([r.get("check_date",""), r.get("check_time",""), r.get("session",""),
+                   r.get("temperature"), r.get("humidity"), r.get("notes",""),
+                   r.get("user_name",""), _fmt_dt(r.get("created_at"))])
+    # daily averages sheet
+    ws2 = wb.create_sheet("Daily Averages")
+    ws2.append(["Date","Avg Temperature (°C)","Avg Humidity (%)","Readings"])
+    by_day = {}
+    for r in rows:
+        by_day.setdefault(r.get("check_date",""), []).append(r)
+    for d, items in sorted(by_day.items()):
+        temps = [x["temperature"] for x in items if x.get("temperature") is not None]
+        hums = [x["humidity"] for x in items if x.get("humidity") is not None]
+        ws2.append([d,
+                    round(sum(temps)/len(temps), 2) if temps else "",
+                    round(sum(hums)/len(hums), 2) if hums else "",
+                    len(items)])
+    _autosize(ws); _autosize(ws2)
+    fn = f"Environment_{start or 'all'}_to_{end or 'all'}.xlsx"
+    return _xlsx_response(wb, fn)
+
+@api.get("/export/field")
+async def export_field(start: Optional[str] = None, end: Optional[str] = None, user=Depends(current_user)):
+    rows = await db.field_tasks.find(_date_filter(start, end), {"_id": 0}).sort("created_at", 1).to_list(10000)
+    wb = Workbook(); ws = wb.active; ws.title = "Field Tasks"
+    ws.append(["Date","Seedling Watered","Seedling pH","Seedling EC",
+               "Pest Check","Pest Notes","Leaf Cleaning","Leaf Notes","Notes","Recorded By","Created At"])
+    for r in rows:
+        ws.append([r.get("check_date",""),
+                   "Yes" if r.get("seedling_watered") else "No",
+                   r.get("seedling_ph"), r.get("seedling_ec"),
+                   "Yes" if r.get("pest_check_done") else "No", r.get("pest_notes",""),
+                   "Yes" if r.get("leaf_cleaning_done") else "No", r.get("leaf_notes",""),
+                   r.get("notes",""), r.get("user_name",""), _fmt_dt(r.get("created_at"))])
+    _autosize(ws)
+    fn = f"Field_{start or 'all'}_to_{end or 'all'}.xlsx"
+    return _xlsx_response(wb, fn)
+
+@api.get("/export/weekly")
+async def export_weekly(start: Optional[str] = None, end: Optional[str] = None, user=Depends(current_user)):
+    rows = await db.weekly_checks.find(_date_filter(start, end), {"_id": 0}).sort("created_at", 1).to_list(10000)
+    wb = Workbook(); ws = wb.active; ws.title = "Weekly Checks"
+    ws.append(["Date","Meter Calibration","Nutrition Qty OK","Nutrition Notes",
+               "Tank Filters Cleaned","Notes","Recorded By","Created At"])
+    for r in rows:
+        ws.append([r.get("check_date",""),
+                   "Yes" if r.get("meter_calibration_done") else "No",
+                   "Yes" if r.get("nutrition_quantity_ok") else "No", r.get("nutrition_notes",""),
+                   "Yes" if r.get("tank_filters_cleaned") else "No",
+                   r.get("notes",""), r.get("user_name",""), _fmt_dt(r.get("created_at"))])
+    _autosize(ws)
+    fn = f"Weekly_{start or 'all'}_to_{end or 'all'}.xlsx"
+    return _xlsx_response(wb, fn)
+
+@api.get("/export/monthly")
+async def export_monthly(start: Optional[str] = None, end: Optional[str] = None, user=Depends(current_user)):
+    rows = await db.monthly_checks.find(_date_filter(start, end), {"_id": 0}).sort("created_at", 1).to_list(10000)
+    wb = Workbook(); ws = wb.active; ws.title = "Monthly Checks"
+    ws.append(["Date","Tanks Cleaned","Salt Formation OK","Salt Notes",
+               "Solution A Qty","Solution B Qty","Solution C Qty","Solutions Ordered",
+               "Seeds Qty OK","Seeds Ordered","Notes","Recorded By","Created At"])
+    for r in rows:
+        ws.append([r.get("check_date",""),
+                   "Yes" if r.get("tanks_cleaned") else "No",
+                   "Yes" if r.get("salt_formation_ok") else "No", r.get("salt_notes",""),
+                   r.get("solution_a_qty"), r.get("solution_b_qty"), r.get("solution_c_qty"),
+                   "Yes" if r.get("solutions_ordered") else "No",
+                   "Yes" if r.get("seeds_qty_ok") else "No",
+                   "Yes" if r.get("seeds_ordered") else "No",
+                   r.get("notes",""), r.get("user_name",""), _fmt_dt(r.get("created_at"))])
+    _autosize(ws)
+    fn = f"Monthly_{start or 'all'}_to_{end or 'all'}.xlsx"
+    return _xlsx_response(wb, fn)
 
 
 @api.get("/")
