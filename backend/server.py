@@ -23,6 +23,7 @@ from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
+import resend
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from openpyxl import Workbook
 from io import BytesIO
@@ -38,10 +39,14 @@ DB_NAME = os.environ['DB_NAME']
 JWT_SECRET = os.environ['JWT_SECRET']
 JWT_ALG = os.environ.get('JWT_ALGORITHM', 'HS256')
 SENDGRID_KEY = os.environ.get('SENDGRID_API_KEY', '')
-SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'noreply@hydromanager.app')
+RESEND_KEY = os.environ.get('RESEND_API_KEY', '')
+SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'HydroManager <onboarding@resend.dev>')
 ADMIN_EMAIL = os.environ['ADMIN_EMAIL']
 ADMIN_PASSWORD = os.environ['ADMIN_PASSWORD']
 MAX_USERS = int(os.environ.get('MAX_USERS', 3))
+
+if RESEND_KEY:
+    resend.api_key = RESEND_KEY
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
@@ -60,15 +65,30 @@ def make_token(uid, email):
     return jwt.encode({"sub": uid, "email": email, "exp": now_utc() + timedelta(days=30), "iat": now_utc()}, JWT_SECRET, algorithm=JWT_ALG)
 
 def send_email(to, subject, html):
-    if not SENDGRID_KEY:
-        logger.warning(f"[DEV-EMAIL] To={to} | {subject}\n{html}")
-        return True
-    try:
-        SendGridAPIClient(SENDGRID_KEY).send(Mail(from_email=SENDER_EMAIL, to_emails=to, subject=subject, html_content=html))
-        return True
-    except Exception as e:
-        logger.error(f"SendGrid: {e}")
-        return False
+    """Send email via Resend (preferred) or SendGrid (fallback) or dev log."""
+    # Try Resend first
+    if RESEND_KEY:
+        try:
+            resend.Emails.send({
+                "from": SENDER_EMAIL,
+                "to": [to],
+                "subject": subject,
+                "html": html,
+            })
+            return True
+        except Exception as e:
+            logger.error(f"Resend: {e}")
+            # fall through to SendGrid / dev log
+    if SENDGRID_KEY:
+        try:
+            SendGridAPIClient(SENDGRID_KEY).send(Mail(from_email=SENDER_EMAIL, to_emails=to, subject=subject, html_content=html))
+            return True
+        except Exception as e:
+            logger.error(f"SendGrid: {e}")
+            return False
+    # Dev mode
+    logger.warning(f"[DEV-EMAIL] To={to} | {subject}\n{html}")
+    return True
 
 async def current_user(creds: HTTPAuthorizationCredentials = Depends(bearer)):
     if not creds: raise HTTPException(401, "Missing token")
@@ -217,7 +237,7 @@ async def login(body: LoginIn, request: Request):
         "created_at": now_utc(),
     })
     resp = {"message": "OTP sent to your email", "email": body.email.lower()}
-    if not SENDGRID_KEY: resp["dev_otp"] = otp
+    if not SENDGRID_KEY and not RESEND_KEY: resp["dev_otp"] = otp
     return resp
 
 @api.post("/auth/verify-otp")
@@ -461,7 +481,7 @@ async def admin_request_otp(admin=Depends(admin_required)):
     send_email(admin["email"], "HydroManager audit access code",
         f"<div style='font-family:Arial;padding:24px;background:#F9F8F6'><h2 style='color:#1B2E1C'>Audit Log Access</h2><p>Use this code to view the audit log:</p><div style='font-size:36px;letter-spacing:8px;font-weight:700;color:#CC7753;background:#fff;padding:20px;text-align:center;border-radius:12px'>{otp}</div></div>")
     resp = {"message": "OTP sent"}
-    if not SENDGRID_KEY: resp["dev_otp"] = otp
+    if not SENDGRID_KEY and not RESEND_KEY: resp["dev_otp"] = otp
     return resp
 
 @api.post("/admin/audit/verify")
@@ -504,7 +524,7 @@ async def forgot_password(body: ForgotPasswordIn):
         "expires_at": now_utc() + timedelta(minutes=15), "created_at": now_utc()})
     html = f"<div style='font-family:Arial;padding:24px;background:#F9F8F6'><h2 style='color:#1B2E1C'>Password reset code</h2><p>Hi {user.get('name','')}, use this code to reset your HydroManager password:</p><div style='font-size:36px;letter-spacing:8px;font-weight:700;color:#CC7753;background:#fff;padding:20px;text-align:center;border-radius:12px'>{otp}</div><p style='color:#888;font-size:12px'>Expires in 15 minutes. If you didn't request this, you can ignore this email.</p></div>"
     send_email(body.email, "HydroManager password reset code", html)
-    if not SENDGRID_KEY: resp["dev_otp"] = otp
+    if not SENDGRID_KEY and not RESEND_KEY: resp["dev_otp"] = otp
     return resp
 
 @api.post("/auth/reset-password")
