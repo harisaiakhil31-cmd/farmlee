@@ -161,6 +161,68 @@ backend:
         agent: "main"
         comment: "Already present in server.py; uses purpose='audit' OTPs valid 10 min."
 
+  - task: "Password change & reset endpoints (/api/auth/change-password, /forgot-password, /reset-password)"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Added 3 new endpoints with shared `validate_password_strength` enforcing
+          8+ chars, 1 uppercase, 1 lowercase, 1 digit, 1 special character.
+          /auth/forgot-password always returns success (no email enumeration),
+          codes valid 15 min, returns `dev_otp` when SendGrid missing.
+          /auth/change-password requires Bearer token + current password.
+          /auth/reset-password verifies the OTP and applies the new password.
+          Smoke tested: existing email -> dev_otp returned; unknown email -> still
+          success; weak password -> 400 with specific message.
+      - working: true
+        agent: "testing"
+        comment: |
+          Comprehensive test run via /app/backend_password_test.py against
+          https://hydro-check-log.preview.emergentagent.com/api. Result: 21/21 PASS.
+
+          POST /api/auth/change-password:
+            * No Bearer token -> 401 "Missing token" ✓
+            * Wrong current_password -> 401 "Current password is incorrect" ✓
+            * Weak new_password returns 400 with the SPECIFIC reason for each case:
+              - "short"      -> "Password must be at least 8 characters" ✓
+              - "alllower1!" -> "Password must include an uppercase letter" ✓
+              - "ALLUPPER1!" -> "Password must include a lowercase letter" ✓
+              - "NoDigits!"  -> "Password must include a number" ✓
+              - "NoSpecial1" -> "Password must include a special character" ✓
+            * new_password == current_password -> 400
+              "New password must be different from the current password" ✓
+            * Strong password "NewPass@2025" -> 200 {ok:true, message:"Password updated"} ✓
+            * After change, fresh login (login -> verify-otp via dev_otp) with the
+              new password succeeds and the OLD password is rejected at /auth/login
+              with 401 ✓
+
+          POST /api/auth/forgot-password:
+            * Known email -> 200 with dev_otp present
+              ({"message":"If this email is registered, a reset code has been sent.",
+                "dev_otp":"<6 digits>"}) ✓
+            * Unknown email (nosuch_user_99201@example.com) -> 200, identical
+              `message`, and dev_otp ABSENT (no enumeration) ✓
+
+          POST /api/auth/reset-password:
+            * Invalid otp -> 401 "Invalid or expired code" ✓
+            * Weak new_password (with valid otp) -> 400
+              "Password must be at least 8 characters" ✓
+            * Valid otp + strong password -> 200 "Password has been reset..." ✓
+            * OTP is single-use: replay of the same otp -> 401 ✓
+            * Fresh login (login -> verify-otp via dev_otp) with the reset password
+              succeeds ✓
+
+          Restoration: Admin password successfully restored to "Admin@123" via
+          /auth/change-password and FINAL admin login with Admin@123 confirmed
+          working (login -> verify-otp -> JWT received). No backend modifications
+          were made. Endpoints are working correctly.
+
 frontend:
   - task: "Excel export UI on Reports screen with date presets + native share"
     implemented: true
@@ -186,8 +248,7 @@ metadata:
   run_ui: false
 
 test_plan:
-  current_focus:
-    - "Excel export endpoints (/api/export/{tanks|environment|field|weekly|monthly})"
+  current_focus: []
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -203,16 +264,18 @@ agent_communication:
       Auth: akhilharisai@gmail.com / Admin@123 — OTP returned as dev_otp on /auth/login.
   - agent: "testing"
     message: |
-      Backend testing complete for Excel export endpoints. 53/53 assertions PASS.
-      Test harness: /app/backend_test.py (uses requests + openpyxl against the
-      public REACT_APP_BACKEND_URL). For each of /api/export/{tanks,environment,
-      field,weekly,monthly}: validated auth gate (401 without token), 200 with
-      Bearer token, xlsx MIME type, Content-Disposition filename pattern
-      "<Report>_<start>_to_<end>.xlsx", workbook loads with openpyxl, sheet names
-      and headers match the spec exactly (tanks=16 cols, environment 8+4 cols on
-      two sheets, field=11 cols, weekly=8 cols, monthly=13 cols), GET without
-      start/end still returns valid xlsx (no 500), and seeded rows from POST
-      /tanks/reading, /environment/reading, /field/tasks, /checks/weekly,
-      /checks/monthly are present in the exported files. No code changes made.
-      Backend export feature is working correctly — main agent can summarize and
-      finish. Frontend testing was NOT performed.
+      Password change & reset endpoints tested via /app/backend_password_test.py
+      against https://hydro-check-log.preview.emergentagent.com/api. 21/21 PASS.
+      - /auth/change-password: 401 no token, 401 wrong current, 400 for each weak
+        policy case (short / no uppercase / no lowercase / no digit / no special)
+        with the SPECIFIC reason in detail, 400 when new==current, 200 with
+        NewPass@2025; fresh login (login+verify-otp via dev_otp) works with the
+        new password and the old password is rejected.
+      - /auth/forgot-password: known email returns 200 + dev_otp; unknown email
+        returns 200 with IDENTICAL message and NO dev_otp (no enumeration).
+      - /auth/reset-password: invalid otp -> 401, weak password -> 400, valid
+        otp + strong password -> 200, OTP is single-use (replay -> 401), and
+        fresh login with the reset password works.
+      - State restored: admin password set back to Admin@123 via
+        /auth/change-password; final Admin@123 login verified.
+      No backend code changes required. Main agent can summarize and finish.

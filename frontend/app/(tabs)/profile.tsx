@@ -105,6 +105,36 @@ export default function ProfileTab() {
           </View>
         </View>
 
+        <TouchableOpacity
+          style={styles.linkRow}
+          onPress={() => router.push("/change-password")}
+          testID="change-password-btn"
+        >
+          <View style={styles.linkIcon}><Ionicons name="key-outline" size={20} color={C.brand} /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.infoTitle}>Change password</Text>
+            <Text style={styles.infoSub}>Update your sign-in password</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={C.text2} />
+        </TouchableOpacity>
+
+        {user?.role === "admin" && (
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => router.push("/checks/audit")}
+            testID="audit-btn"
+          >
+            <View style={[styles.linkIcon, { backgroundColor: "#FFF4EC" }]}>
+              <Ionicons name="receipt-outline" size={20} color={C.accent} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoTitle}>Audit log</Text>
+              <Text style={styles.infoSub}>Login history · admin only (extra OTP)</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={C.text2} />
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity style={styles.logout} onPress={onLogout} testID="logout-btn">
           <Ionicons name="log-out-outline" size={20} color={C.danger} />
           <Text style={styles.logoutText}>Sign out</Text>
@@ -137,6 +167,8 @@ const styles = StyleSheet.create({
   infoCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: C.card, borderRadius: 16, padding: S.md, borderWidth: 1, borderColor: C.border },
   infoTitle: { fontSize: 14, fontWeight: "700", color: C.text },
   infoSub: { fontSize: 12, color: C.text2, marginTop: 2 },
+  linkRow: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: C.card, borderRadius: 16, padding: S.md, borderWidth: 1, borderColor: C.border, marginTop: 8 },
+  linkIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: "#EFF3DC", alignItems: "center", justifyContent: "center" },
   logout: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: S.lg, padding: S.md, borderRadius: 16, backgroundColor: "#FCE4E1" },
   logoutText: { color: C.danger, fontSize: 15, fontWeight: "700" },
 });

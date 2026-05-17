@@ -81,6 +81,14 @@ export default function Login() {
               </>}
           </TouchableOpacity>
 
+          <TouchableOpacity
+            testID="login-forgot-btn"
+            onPress={() => router.push("/forgot-password")}
+            style={styles.forgot}
+          >
+            <Text style={styles.forgotText}>Forgot password?</Text>
+          </TouchableOpacity>
+
           <Text style={styles.hint}>A 6-digit code will be sent to your email.</Text>
         </View>
       </KeyboardAvoidingView>
@@ -114,4 +122,6 @@ const styles = StyleSheet.create({
   },
   btnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
   hint: { textAlign: "center", marginTop: S.md, color: C.textMuted, fontSize: 12 },
+  forgot: { alignSelf: "center", marginTop: S.md, padding: 6 },
+  forgotText: { color: C.accent, fontSize: 13, fontWeight: "700" },
 });

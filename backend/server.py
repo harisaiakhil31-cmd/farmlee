@@ -167,6 +167,33 @@ class AdminOtpRequestIn(BaseModel):
 class AdminOtpVerifyIn(BaseModel):
     otp: str
 
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+class ResetPasswordIn(BaseModel):
+    email: EmailStr
+    otp: str
+    new_password: str
+
+
+import re
+def validate_password_strength(pwd: str):
+    """Raise HTTPException if password doesn't meet policy."""
+    if len(pwd) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+    if not re.search(r"[A-Z]", pwd):
+        raise HTTPException(400, "Password must include an uppercase letter")
+    if not re.search(r"[a-z]", pwd):
+        raise HTTPException(400, "Password must include a lowercase letter")
+    if not re.search(r"\d", pwd):
+        raise HTTPException(400, "Password must include a number")
+    if not re.search(r"[^A-Za-z0-9]", pwd):
+        raise HTTPException(400, "Password must include a special character")
+
 
 # ---------- AUTH + AUDIT ----------
 @api.post("/auth/login")
@@ -447,6 +474,55 @@ async def admin_verify_audit(body: AdminOtpVerifyIn, admin=Depends(admin_require
     await db.otp_codes.delete_many({"email": admin["email"], "purpose": "audit"})
     logs = await db.audit_logs.find({}, {"_id": 0}).sort("logged_in_at", -1).limit(200).to_list(200)
     return {"logs": logs}
+
+
+# ---------- PASSWORD CHANGE / RESET ----------
+@api.post("/auth/change-password")
+async def change_password(body: ChangePasswordIn, user=Depends(current_user)):
+    full = await db.users.find_one({"id": user["id"]})
+    if not full or not verify_pwd(body.current_password, full["password_hash"]):
+        raise HTTPException(401, "Current password is incorrect")
+    if body.current_password == body.new_password:
+        raise HTTPException(400, "New password must be different from the current password")
+    validate_password_strength(body.new_password)
+    await db.users.update_one({"id": user["id"]}, {"$set": {
+        "password_hash": hash_pwd(body.new_password),
+        "password_changed_at": now_utc(),
+    }})
+    return {"ok": True, "message": "Password updated"}
+
+@api.post("/auth/forgot-password")
+async def forgot_password(body: ForgotPasswordIn):
+    """Always returns success to avoid leaking which emails exist."""
+    user = await db.users.find_one({"email": body.email.lower()})
+    resp = {"message": "If this email is registered, a reset code has been sent."}
+    if not user:
+        return resp
+    otp = f"{secrets.randbelow(1000000):06d}"
+    await db.otp_codes.delete_many({"email": body.email.lower(), "purpose": "reset"})
+    await db.otp_codes.insert_one({"email": body.email.lower(), "otp": otp, "purpose": "reset",
+        "expires_at": now_utc() + timedelta(minutes=15), "created_at": now_utc()})
+    html = f"<div style='font-family:Arial;padding:24px;background:#F9F8F6'><h2 style='color:#1B2E1C'>Password reset code</h2><p>Hi {user.get('name','')}, use this code to reset your HydroManager password:</p><div style='font-size:36px;letter-spacing:8px;font-weight:700;color:#CC7753;background:#fff;padding:20px;text-align:center;border-radius:12px'>{otp}</div><p style='color:#888;font-size:12px'>Expires in 15 minutes. If you didn't request this, you can ignore this email.</p></div>"
+    send_email(body.email, "HydroManager password reset code", html)
+    if not SENDGRID_KEY: resp["dev_otp"] = otp
+    return resp
+
+@api.post("/auth/reset-password")
+async def reset_password(body: ResetPasswordIn):
+    rec = await db.otp_codes.find_one({"email": body.email.lower(), "otp": body.otp, "purpose": "reset"})
+    if not rec: raise HTTPException(401, "Invalid or expired code")
+    exp = rec["expires_at"]
+    if exp.tzinfo is None: exp = exp.replace(tzinfo=timezone.utc)
+    if exp < now_utc(): raise HTTPException(401, "Reset code expired")
+    user = await db.users.find_one({"email": body.email.lower()})
+    if not user: raise HTTPException(404, "User not found")
+    validate_password_strength(body.new_password)
+    await db.otp_codes.delete_many({"email": body.email.lower(), "purpose": "reset"})
+    await db.users.update_one({"id": user["id"]}, {"$set": {
+        "password_hash": hash_pwd(body.new_password),
+        "password_changed_at": now_utc(),
+    }})
+    return {"ok": True, "message": "Password has been reset. Please sign in."}
 
 
 # ---------- DASHBOARD ----------
