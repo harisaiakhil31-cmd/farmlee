@@ -1,12 +1,24 @@
 import { useState, useCallback } from "react";
 import {
-  View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Platform,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { api, clearSession, getUser } from "../../src/api";
 import { C, S } from "../../src/theme";
+
+// Cross-platform confirm (Alert.alert callbacks don't fire on react-native-web)
+const confirmAction = (title: string, message: string, onConfirm: () => void) => {
+  if (Platform.OS === "web") {
+    if (typeof window !== "undefined" && window.confirm(`${title}\n\n${message}`)) onConfirm();
+  } else {
+    Alert.alert(title, message, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Confirm", style: "destructive", onPress: onConfirm },
+    ]);
+  }
+};
 
 export default function ProfileTab() {
   const router = useRouter();
@@ -26,19 +38,12 @@ export default function ProfileTab() {
   useFocusEffect(useCallback(() => { load(); }, []));
 
   const onLogout = () =>
-    Alert.alert("Sign out?", "", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Sign out", style: "destructive",
-        onPress: async () => { await clearSession(); router.replace("/login"); },
-      },
-    ]);
+    confirmAction("Sign out?", "You will be signed out and need to enter your password + OTP again.",
+      async () => { await clearSession(); router.replace("/login"); });
 
   const onRemove = (uid: string) =>
-    Alert.alert("Remove user?", "", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Remove", style: "destructive", onPress: async () => { await api.delete(`/users/${uid}`); load(); } },
-    ]);
+    confirmAction("Remove user?", "This user will lose access to Farmlee Manager.",
+      async () => { await api.delete(`/users/${uid}`); load(); });
 
   return (
     <SafeAreaView style={styles.c} edges={["top"]}>
