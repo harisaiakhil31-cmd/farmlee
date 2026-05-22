@@ -1,0 +1,120 @@
+{
+  "app_context": {
+    "name": "HydroManager",
+    "domain": "Hydroponics, Agriculture, Environment",
+    "theme": "Light",
+    "archetype": "Archetype 1 (Organic & Earthy)",
+    "vibe": "Professional agronomy tool, tactile, field-optimized, high-contrast for sunlight readability. Avoids the cold clinical 'tech' look."
+  },
+  "design_system": {
+    "colors": {
+      "background": {
+        "primary": "#F9F8F6",
+        "secondary": "#F1EDE7",
+        "tertiary": "#E5E0D8"
+      },
+      "text": {
+        "primary": "#1B2E1C",
+        "secondary": "#4A5D23",
+        "inverse": "#F9F8F6"
+      },
+      "brand": {
+        "primary": "#4A5D23",
+        "primary_hover": "#3C4B1C",
+        "accent": "#CC7753",
+        "success": "#34C759",
+        "warning": "#FF9500",
+        "danger": "#FF3B30",
+        "water": "#32ADE6"
+      },
+      "surface": {
+        "card": "#FFFFFF",
+        "card_border": "#E5E0D8",
+        "input_bg": "#FAFAF7"
+      }
+    },
+    "typography": {
+      "fonts": {
+        "heading": "Manrope",
+        "body": "Work Sans",
+        "mono": "JetBrains Mono"
+      },
+      "scale": {
+        "h1": "text-4xl tracking-tighter leading-none font-extrabold text-[#1B2E1C]",
+        "h2": "text-3xl tracking-tight leading-tight font-bold text-[#1B2E1C]",
+        "h3": "text-xl tracking-tight font-semibold text-[#1B2E1C]",
+        "h4": "text-lg font-medium text-[#1B2E1C]",
+        "body": "text-base leading-relaxed font-normal text-[#1B2E1C]",
+        "small": "text-sm font-normal text-[#4A5D23]",
+        "label": "text-xs tracking-[0.2em] uppercase font-bold text-[#4A5D23]"
+      }
+    },
+    "spacing": {
+      "rules": [
+        "Use generous spacing: minimum 16px (p-4) to 24px (p-6) padding inside cards to prevent text collision.",
+        "Touch targets MUST be at least 48px height (h-12) for field operability with gloves.",
+        "Mobile-first constraint: Images must not exceed 80vh."
+      ],
+      "tailwind_scale": ["p-4", "p-6", "p-8", "gap-4", "gap-6"]
+    },
+    "components": {
+      "buttons": {
+        "primary": "bg-[#4A5D23] text-white rounded-xl px-6 py-4 font-bold flex flex-row items-center justify-center hover:bg-[#3C4B1C] transition-colors",
+        "secondary": "bg-[#F1EDE7] text-[#1B2E1C] rounded-xl px-6 py-4 font-bold border border-[#E5E0D8] hover:bg-[#E5E0D8] transition-colors",
+        "accent": "bg-[#CC7753] text-white rounded-xl px-6 py-4 font-bold hover:bg-[#A66042] transition-colors"
+      },
+      "cards": {
+        "base": "bg-white rounded-2xl border border-[#E5E0D8] p-6 shadow-sm",
+        "bento_item": "bg-white rounded-3xl border border-[#E5E0D8] p-6 shadow-sm flex flex-col justify-between"
+      },
+      "inputs": {
+        "container": "flex flex-col gap-2",
+        "text": "bg-[#FAFAF7] border border-[#E5E0D8] rounded-xl px-4 py-4 text-base text-[#1B2E1C] focus:border-[#4A5D23] focus:ring-1 focus:ring-[#4A5D23] transition-all",
+        "label": "text-xs tracking-wide uppercase font-bold text-[#4A5D23]"
+      },
+      "surfaces": {
+        "header": "bg-[#F9F8F6]/80 backdrop-blur-xl border-b border-[#E5E0D8]",
+        "bottom_nav": "bg-white border-t border-[#E5E0D8] pb-safe pt-2 px-4 flex flex-row justify-around items-center h-20"
+      }
+    },
+    "layout_patterns": {
+      "dashboard": "Bento 'Control Room' Grid (grid-cols-2 for mobile data viz, e.g. pH on left, EC on right) utilizing strict tight gaps (gap-4). Everything must fill height.",
+      "lists": "Tall narrow lists (col-span-full) for daily task tracking. Swipe-to-complete interactions for tasks.",
+      "data_viz": "Gauge or thick circular progress rings for pH/EC ranges. Avoid standard bar charts for ranges. Use clear thresholds (Low/Optimal/High)."
+    }
+  },
+  "media": {
+    "images": [
+      {
+        "category": "onboarding_bg",
+        "description": "Greenhouse overview for login/onboarding screen background (use with bg-white/40 overlay)",
+        "url": "https://images.unsplash.com/photo-1758524056596-af1c19797d01?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzN8MHwxfHNlYXJjaHwyfHxoeWRyb3BvbmljcyUyMGdyZWVuaG91c2V8ZW58MHx8fHwxNzc4NDUxMDQ5fDA&ixlib=rb-4.1.0&q=85"
+      },
+      {
+        "category": "crops_library_header",
+        "description": "Plant seedling image for the Crops Library header or empty states",
+        "url": "https://images.unsplash.com/photo-1631401551847-78450ef649d8?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxwbGFudCUyMHNwcm91dCUyMGhhbmRzfGVufDB8fHx8MTc3ODQ1MTA0OXww&ixlib=rb-4.1.0&q=85"
+      },
+      {
+        "category": "facility_overview",
+        "description": "General hydroponic greenhouse architecture for dashboard headers",
+        "url": "https://images.unsplash.com/photo-1608101913822-5343e10fceba?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzN8MHwxfHNlYXJjaHwxfHxoeWRyb3BvbmljcyUyMGdyZWVuaG91c2V8ZW58MHx8fHwxNzc4NDUxMDQ5fDA&ixlib=rb-4.1.0&q=85"
+      }
+    ]
+  },
+  "technical_rules": {
+    "file_extensions": "Use .js files (NOT .tsx files) for components and screens as per technical constraints.",
+    "testing": "All interactive and key informational elements MUST include a data-testid attribute (e.g., data-testid='ph-input-field').",
+    "accessibility": "Ensure contrast ratio of at least 4.5:1. Never rely on color alone for critical alerts (e.g. pH out of bounds).",
+    "icons": "Use lucide-react (or lucide-react-native) for icons. Keep icon stroke-width consistent.",
+    "state_colors": "Always explicitly define hover, focus, and active states for interactive elements."
+  },
+  "instructions_to_main_agent": [
+    "Build a mobile-first UI tailored for a hybrid_fullstack setup using React JS and Tailwind CSS.",
+    "Use standard Tailwind classes from this guideline. If converting to React Native, use a framework like NativeWind to parse these classes.",
+    "Ensure the bottom navigation provides access to: Dashboard, Calendar, Crops, Reminders, and Profile.",
+    "For the daily checks (pH/EC/temp), implement forms with real-time range validation styling (e.g., red border if out of range).",
+    "Utilize Shadcn/UI primitives for interactive logic (Dialogs, Selects) but heavily customize them to match the Earthy & Organic archetype.",
+    "Do NOT use the generic 'SaaS Blue' or generic Inter font for headings."
+  ]
+}
