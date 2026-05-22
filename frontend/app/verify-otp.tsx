@@ -19,6 +19,7 @@ export default function VerifyOTP() {
     if (dev_otp && dev_otp.length === 6) {
       setCode(dev_otp.split(""));
     }
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [dev_otp]);
 
   const setDigit = (i: number, v: string) => {
@@ -70,7 +71,7 @@ export default function VerifyOTP() {
         <View style={styles.row}>
           {code.map((d, i) => (
             <TextInput
-              key={i}
+              key={`otp-digit-${i}`}
               ref={(r) => { refs.current[i] = r; }}
               testID={`otp-digit-${i}`}
               value={d}

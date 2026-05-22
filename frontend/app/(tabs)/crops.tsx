@@ -21,13 +21,15 @@ export default function CropsTab() {
   const [crops, setCrops] = useState<any[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const r = await api.get("/crops");
       setCrops(r.data);
-    } catch {}
-  };
-  useFocusEffect(useCallback(() => { load(); }, []));
+    } catch (err) {
+      console.error("Crops load failed:", err);
+    }
+  }, []);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const onDelete = (id: string) =>
     Alert.alert("Delete crop?", "", [
@@ -85,7 +87,7 @@ export default function CropsTab() {
             {expanded === c.id && (
               <View style={styles.stagesWrap}>
                 {(c.stages || []).map((s: any, i: number) => (
-                  <View key={i} style={styles.stage}>
+                  <View key={`${c.id}-stage-${s.name}-${i}`} style={styles.stage}>
                     <View style={[styles.stageBar, { backgroundColor: STAGE_COLORS[s.name] || C.brand }]} />
                     <View style={{ flex: 1 }}>
                       <View style={styles.stageHead}>

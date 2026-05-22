@@ -21,7 +21,7 @@ export default function Environment() {
     const r = await api.get("/environment/reading", { params: { date: format(new Date(), "yyyy-MM-dd") } });
     setList(r.data.items || []); setAvg(r.data.average);
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
   const save = async () => {
     if (!temp || !hum) return Alert.alert("Required", "Enter temperature and humidity");

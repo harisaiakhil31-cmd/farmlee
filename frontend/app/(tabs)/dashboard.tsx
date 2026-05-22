@@ -15,16 +15,18 @@ export default function Dashboard() {
   const [user, setUser] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const u = await getUser();
       setUser(u);
       const r = await api.get("/dashboard");
       setData(r.data);
-    } catch {}
-  };
+    } catch (err) {
+      console.error("Dashboard load failed:", err);
+    }
+  }, []);
 
-  useFocusEffect(useCallback(() => { load(); }, []));
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -113,14 +115,19 @@ export default function Dashboard() {
         {/* Expected today */}
         <Text style={styles.section}>Today's checklist</Text>
         <View style={styles.checklist}>
-          {(data?.expected_today || []).map((t: any, i: number) => (
-            <View key={i} style={styles.checkRow} testID={`expected-${i}`}>
-              <View style={[styles.tag, { backgroundColor: t.type === "daily" ? "#E8EFD8" : t.type === "weekly" ? "#F3E4D6" : "#DFE8EE" }]}>
-                <Text style={[styles.tagText, { color: C.text }]}>{t.type}</Text>
+          {(data?.expected_today || []).map((t: any, i: number) => {
+            const tagColor =
+              t.type === "daily" ? "#E8EFD8" :
+              t.type === "weekly" ? "#F3E4D6" : "#DFE8EE";
+            return (
+              <View key={`exp-${t.type}-${t.label}-${i}`} style={styles.checkRow} testID={`expected-${i}`}>
+                <View style={[styles.tag, { backgroundColor: tagColor }]}>
+                  <Text style={[styles.tagText, { color: C.text }]}>{t.type}</Text>
+                </View>
+                <Text style={styles.checkLabel}>{t.label}</Text>
               </View>
-              <Text style={styles.checkLabel}>{t.label}</Text>
-            </View>
-          ))}
+            );
+          })}
         </View>
 
         {/* Upcoming reminders */}
@@ -161,14 +168,18 @@ function Stat({ label, value, unit, range }: any) {
   const inRange = range && value != null
     ? value >= range.min && value <= range.max
     : true;
+  const isMissing = value == null;
+  let valueColor = C.text;
+  if (isMissing) valueColor = C.textMuted;
+  else if (!inRange) valueColor = C.danger;
   return (
     <View style={styles.stat}>
       <Text style={styles.statLabel}>{label}</Text>
-      <Text style={[styles.statValue, { color: value == null ? C.textMuted : inRange ? C.text : C.danger }]}>
-        {value != null ? value : "–"}
+      <Text style={[styles.statValue, { color: valueColor }]}>
+        {!isMissing ? value : "–"}
       </Text>
       <Text style={styles.statUnit}>{unit}</Text>
-      {range && value != null && (
+      {range && !isMissing && (
         <View style={[styles.statBadge, { backgroundColor: inRange ? "#E8F6E8" : "#FCE4E1" }]}>
           <Text style={[styles.statBadgeText, { color: inRange ? C.success : C.danger }]}>
             {inRange ? "OK" : "OUT"}

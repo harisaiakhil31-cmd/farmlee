@@ -37,7 +37,9 @@ export default function SeedlingsScreen() {
       ]);
       setBatches(b.data || []);
       setTypesCount((t.data || []).length);
-    } catch {} finally { setLoading(false); setRefreshing(false); }
+    } catch (err) {
+      console.error("Seedlings load failed:", err);
+    } finally { setLoading(false); setRefreshing(false); }
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -95,7 +97,8 @@ function BatchCard({ b, onPress }: { b: Batch; onPress: () => void }) {
   const isActive = b.status === "active";
   let daysLeft = 0;
   if (b.expected_transplant_date) {
-    try { daysLeft = differenceInDays(parseISO(b.expected_transplant_date), new Date()); } catch {}
+    try { daysLeft = differenceInDays(parseISO(b.expected_transplant_date), new Date()); }
+    catch (err) { console.error("Date parse failed:", err); }
   }
   return (
     <TouchableOpacity style={s.card} onPress={onPress}>
@@ -105,8 +108,11 @@ function BatchCard({ b, onPress }: { b: Batch; onPress: () => void }) {
           <Text style={s.type}>{b.seedling_type_name} · {b.quantity} plants</Text>
         </View>
         {isActive ? (
-          p.ready_to_transplant ? <Pill text="Ready!" color="#A5C45A" /> :
-            <Pill text={`${daysLeft >= 0 ? daysLeft : 0}d left`} color="#CC7753" />
+          (() => {
+            if (p.ready_to_transplant) return <Pill text="Ready!" color="#A5C45A" />;
+            const days = daysLeft >= 0 ? daysLeft : 0;
+            return <Pill text={`${days}d left`} color="#CC7753" />;
+          })()
         ) : <Pill text="Transplanted" color={C.text2} />}
       </View>
 

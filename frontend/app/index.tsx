@@ -12,6 +12,7 @@ export default function Index() {
       if (t) router.replace("/(tabs)/dashboard");
       else router.replace("/login");
     })();
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, []);
   return (
     <View style={styles.c} testID="splash">

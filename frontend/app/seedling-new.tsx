@@ -29,7 +29,8 @@ export default function NewBatch() {
     api.get("/seedlings/types").then(r => {
       setTypes(r.data || []);
       if (r.data?.length) setSelectedTypeId(r.data[0].id);
-    }).catch(() => {});
+    }).catch((err) => { console.error("Seedling types fetch failed:", err); });
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, []);
 
   const selectedType = types.find(t => t.id === selectedTypeId);

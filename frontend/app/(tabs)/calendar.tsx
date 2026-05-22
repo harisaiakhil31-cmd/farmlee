@@ -13,7 +13,7 @@ export default function CalendarTab() {
   const [selected, setSelected] = useState(today);
   const [marks, setMarks] = useState<any>({});
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const start = format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), "yyyy-MM-dd");
     const end = format(new Date(new Date().getFullYear(), new Date().getMonth() + 2, 0), "yyyy-MM-dd");
     try {
@@ -27,10 +27,12 @@ export default function CalendarTab() {
         m[d] = { ...(m[d] || {}), marked: true, dotColor: C.accent };
       });
       setMarks(m);
-    } catch {}
-  };
+    } catch (err) {
+      console.error("Calendar load failed:", err);
+    }
+  }, []);
 
-  useFocusEffect(useCallback(() => { load(); }, []));
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   return (
     <SafeAreaView style={styles.c} edges={["top"]}>

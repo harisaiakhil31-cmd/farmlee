@@ -18,7 +18,8 @@ export default function SeedlingTypes() {
 
   const load = useCallback(async () => {
     try { const r = await api.get("/seedlings/types"); setTypes(r.data || []); }
-    catch {} finally { setLoading(false); }
+    catch (err) { console.error("Seedling types load failed:", err); }
+    finally { setLoading(false); }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -44,9 +45,10 @@ export default function SeedlingTypes() {
 
       <ScrollView contentContainerStyle={{ padding: S.md, paddingBottom: 40 }}>
         <Text style={s.helper}>Templates that define growth stages, durations and EC targets for each plant.</Text>
-        {loading ? <ActivityIndicator color={C.brand} style={{ marginTop: 40 }} /> : types.length === 0 ? (
-          <Text style={s.empty}>No plant types yet — tap + to add one.</Text>
-        ) : types.map(t => (
+        {(() => {
+          if (loading) return <ActivityIndicator color={C.brand} style={{ marginTop: 40 }} />;
+          if (types.length === 0) return <Text style={s.empty}>No plant types yet — tap + to add one.</Text>;
+          return types.map(t => (
           <View key={t.id} style={s.card}>
             <View style={s.cardHead}>
               <View style={{ flex: 1 }}>
@@ -60,7 +62,7 @@ export default function SeedlingTypes() {
               </View>
             </View>
             {(t.stages || []).map((st: any, i: number) => (
-              <View key={i} style={s.stage}>
+              <View key={`${t.id}-stage-${st.order_index ?? i}`} style={s.stage}>
                 <Text style={s.stageIdx}>{i + 1}</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={s.stageName}>{st.stage_name}</Text>
@@ -69,7 +71,8 @@ export default function SeedlingTypes() {
               </View>
             ))}
           </View>
-        ))}
+          ));
+        })()}
       </ScrollView>
 
       {(creating || editing) && (
@@ -142,7 +145,7 @@ function TypeEditor({ existing, onClose, onSaved }: any) {
 
             <Text style={[s.label, { marginTop: 20, fontSize: 13, letterSpacing: 1 }]}>STAGES ({stages.length})</Text>
             {stages.map((st, i) => (
-              <View key={i} style={s.stageBox}>
+              <View key={`edit-stage-${st.order_index ?? i}`} style={s.stageBox}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <Text style={s.stageBoxLabel}>Stage {i + 1}</Text>
                   {stages.length > 1 && (
@@ -169,7 +172,10 @@ function TypeEditor({ existing, onClose, onSaved }: any) {
             </TouchableOpacity>
 
             <TouchableOpacity style={[s.btn, saving && { opacity: 0.6 }]} onPress={save} disabled={saving}>
-              <Text style={s.btnText}>{saving ? "Saving..." : existing ? "Update plant type" : "Create plant type"}</Text>
+              <Text style={s.btnText}>{(() => {
+                if (saving) return "Saving...";
+                return existing ? "Update plant type" : "Create plant type";
+              })()}</Text>
             </TouchableOpacity>
           </ScrollView>
         </KeyboardAvoidingView>

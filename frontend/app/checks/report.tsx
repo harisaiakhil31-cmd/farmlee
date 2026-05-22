@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Platform, ActivityIndicator, Modal,
 } from "react-native";
@@ -67,14 +67,16 @@ export default function ReportsScreen() {
   const [pickerFor, setPickerFor] = useState<"start" | "end" | null>(null);
   const [busy, setBusy] = useState<ReportKey | null>(null);
 
-  const loadSummary = async () => {
+  const loadSummary = useCallback(async () => {
     try {
       const s = format(weekStart, "yyyy-MM-dd");
       const r = await api.get("/report/weekly", { params: { start: s } });
       setData(r.data);
-    } catch {}
-  };
-  useEffect(() => { loadSummary(); }, [weekStart]);
+    } catch (err) {
+      console.error("Weekly report load failed:", err);
+    }
+  }, [weekStart]);
+  useEffect(() => { loadSummary(); }, [loadSummary]);
 
   const applyPreset = (p: Preset) => {
     const r = p.range();

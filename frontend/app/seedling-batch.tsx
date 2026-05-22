@@ -93,7 +93,7 @@ export default function BatchDetail() {
                 const active = i === stageIdx && isActive;
                 const done = i < stageIdx || !isActive;
                 return (
-                  <View key={i} style={s.stageItem}>
+                  <View key={`stage-${st.order_index ?? i}-${st.stage_name}`} style={s.stageItem}>
                     <View style={[s.dot, done && { backgroundColor: C.brand }, active && { backgroundColor: C.accent, transform: [{ scale: 1.3 }] }]} />
                     {i < stages.length - 1 && <View style={[s.line, done && { backgroundColor: C.brand }]} />}
                     <View style={{ flex: 1, paddingBottom: i < stages.length - 1 ? 14 : 0 }}>

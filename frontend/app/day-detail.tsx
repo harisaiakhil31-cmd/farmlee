@@ -13,7 +13,8 @@ export default function DayDetail() {
   const [data, setData] = useState<any>(null);
 
   useEffect(() => { (async () => {
-    try { const r = await api.get(`/calendar/day/${day}`); setData(r.data); } catch {}
+    try { const r = await api.get(`/calendar/day/${day}`); setData(r.data); }
+    catch (err) { console.error("Day detail load failed:", err); }
   })(); }, [day]);
 
   if (!data) return <SafeAreaView style={styles.c}><Text style={{ padding: S.md, color: C.textMuted }}>Loading…</Text></SafeAreaView>;
@@ -30,28 +31,40 @@ export default function DayDetail() {
 
       <ScrollView contentContainerStyle={{ padding: S.md }}>
         <View style={[styles.tagWrap]}>
-          <View style={[styles.statusTag, {
-            backgroundColor: data.is_future ? "#FFF4EC" : data.is_today ? "#EFF3DC" : "#F1EDE7",
-          }]}>
-            <Ionicons
-              name={data.is_future ? "time-outline" : data.is_today ? "today-outline" : "checkmark-done"}
-              size={14} color={data.is_future ? C.accent : C.brand} />
-            <Text style={styles.statusText}>
-              {data.is_future ? "UPCOMING" : data.is_today ? "TODAY" : "HISTORY"}
-            </Text>
-          </View>
+          {(() => {
+            let bg = "#F1EDE7";
+            let iconName: any = "checkmark-done";
+            let iconColor = C.brand;
+            let label = "HISTORY";
+            if (data.is_future) {
+              bg = "#FFF4EC"; iconName = "time-outline"; iconColor = C.accent; label = "UPCOMING";
+            } else if (data.is_today) {
+              bg = "#EFF3DC"; iconName = "today-outline"; iconColor = C.brand; label = "TODAY";
+            }
+            return (
+              <View style={[styles.statusTag, { backgroundColor: bg }]}>
+                <Ionicons name={iconName} size={14} color={iconColor} />
+                <Text style={styles.statusText}>{label}</Text>
+              </View>
+            );
+          })()}
         </View>
 
         {data.is_future ? (
           <>
             <Text style={styles.section}>EXPECTED TASKS</Text>
-            {(data.expected_tasks || []).map((t: any, i: number) => (
-              <View key={i} style={styles.row}>
-                <View style={[styles.dot, { backgroundColor: t.type === "daily" ? C.brand : t.type === "weekly" ? C.accent : C.water }]} />
-                <Text style={styles.rowText}>{t.label}</Text>
-                <Text style={styles.rowSide}>{t.type}</Text>
-              </View>
-            ))}
+            {(data.expected_tasks || []).map((t: any, i: number) => {
+              let dotColor = C.water;
+              if (t.type === "daily") dotColor = C.brand;
+              else if (t.type === "weekly") dotColor = C.accent;
+              return (
+                <View key={`${t.type}-${t.label}-${i}`} style={styles.row}>
+                  <View style={[styles.dot, { backgroundColor: dotColor }]} />
+                  <Text style={styles.rowText}>{t.label}</Text>
+                  <Text style={styles.rowSide}>{t.type}</Text>
+                </View>
+              );
+            })}
           </>
         ) : (
           <>

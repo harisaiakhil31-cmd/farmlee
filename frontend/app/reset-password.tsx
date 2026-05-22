@@ -21,7 +21,10 @@ export default function ResetPassword() {
   const [resending, setResending] = useState(false);
   const refs = useRef<Array<TextInput | null>>([]);
 
-  useEffect(() => { if (dev_otp && dev_otp.length === 6) setCode(dev_otp.split("")); }, [dev_otp]);
+  useEffect(() => {
+    if (dev_otp && dev_otp.length === 6) setCode(dev_otp.split(""));
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [dev_otp]);
 
   const setDigit = (i: number, v: string) => {
     const d = v.replace(/[^0-9]/g, "").slice(-1);
@@ -35,7 +38,10 @@ export default function ResetPassword() {
       const r = await api.post("/auth/forgot-password", { email });
       if (r.data.dev_otp) setCode(r.data.dev_otp.split(""));
       Alert.alert("Code sent", "A new 6-digit code has been emailed.");
-    } catch { Alert.alert("Error", "Could not resend code"); }
+    } catch (err) {
+      console.error("Resend forgot-password failed:", err);
+      Alert.alert("Error", "Could not resend code");
+    }
     finally { setResending(false); }
   };
 
@@ -76,7 +82,7 @@ export default function ResetPassword() {
           <Text style={s.label}>VERIFICATION CODE</Text>
           <View style={s.codeRow}>
             {code.map((d,i) => (
-              <TextInput key={i}
+              <TextInput key={`rp-otp-${i}`}
                 ref={(r) => { refs.current[i] = r; }}
                 testID={`rp-otp-${i}`}
                 value={d}

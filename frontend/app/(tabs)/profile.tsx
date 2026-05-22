@@ -25,17 +25,19 @@ export default function ProfileTab() {
   const [user, setUser] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const u = await getUser();
     setUser(u);
     if (u?.role === "admin") {
       try {
         const r = await api.get("/users");
         setUsers(r.data);
-      } catch {}
+      } catch (err) {
+        console.error("Users load failed:", err);
+      }
     }
-  };
-  useFocusEffect(useCallback(() => { load(); }, []));
+  }, []);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const onLogout = () =>
     confirmAction("Sign out?", "You will be signed out and need to enter your password + OTP again.",

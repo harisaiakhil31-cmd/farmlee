@@ -4,9 +4,14 @@ import pytest
 import requests
 from datetime import datetime, timezone, timedelta
 
-BASE_URL = "https://hydro-check-log.preview.emergentagent.com"
-ADMIN_EMAIL = "akhilharisai@gmail.com"
-ADMIN_PASSWORD = "Admin@123"
+BASE_URL = os.environ.get(
+    "TEST_BASE_URL", "https://hydro-check-log.preview.emergentagent.com"
+)
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "akhilharisai@gmail.com")
+# SECURITY: Never hardcode credentials. Provide via env var (e.g. .env or CI secret).
+ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"] if "ADMIN_PASSWORD" in os.environ else (
+    pytest.skip("ADMIN_PASSWORD env var required to run these tests", allow_module_level=True)
+)
 
 state = {}
 

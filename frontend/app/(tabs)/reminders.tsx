@@ -13,13 +13,15 @@ export default function RemindersTab() {
   const router = useRouter();
   const [items, setItems] = useState<any[]>([]);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const r = await api.get("/reminders");
       setItems(r.data);
-    } catch {}
-  };
-  useFocusEffect(useCallback(() => { load(); }, []));
+    } catch (err) {
+      console.error("Reminders load failed:", err);
+    }
+  }, []);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const onDelete = (id: string) =>
     Alert.alert("Delete reminder?", "", [

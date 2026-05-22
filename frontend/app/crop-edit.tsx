@@ -82,7 +82,7 @@ export default function CropEdit() {
           </View>
 
           {stages.map((s, i) => (
-            <View key={i} style={styles.stage}>
+            <View key={`stage-${i}-${s.name}`} style={styles.stage}>
               <View style={styles.stageRow}>
                 <TextInput style={[styles.input, { flex: 1 }]} value={s.name} onChangeText={(v) => setStage(i, "name", v)}
                   placeholder="seedling | vegetative | flowering | fruiting | harvest" placeholderTextColor={C.textMuted} />
