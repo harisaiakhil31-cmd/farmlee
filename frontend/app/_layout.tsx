@@ -27,6 +27,9 @@ export default function RootLayout() {
           <Stack.Screen name="day-detail" options={{ presentation: "modal" }} />
           <Stack.Screen name="invite-user" options={{ presentation: "modal" }} />
           <Stack.Screen name="change-password" options={{ presentation: "modal" }} />
+          <Stack.Screen name="seedling-new" options={{ presentation: "modal" }} />
+          <Stack.Screen name="seedling-batch" options={{ presentation: "modal" }} />
+          <Stack.Screen name="seedling-types" options={{ presentation: "modal" }} />
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>

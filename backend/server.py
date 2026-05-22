@@ -201,6 +201,58 @@ class ReminderIn(BaseModel):
 class AdminOtpRequestIn(BaseModel):
     pass
 
+# ---------- SEEDLING MANAGEMENT MODELS ----------
+class SeedlingStageIn(BaseModel):
+    stage_name: str
+    order_index: int = 0
+    duration_days: int
+    ec_min: float
+    ec_max: float
+    water_temp_min: Optional[float] = None
+    water_temp_max: Optional[float] = None
+    notes: str = ""
+
+class SeedlingTypeIn(BaseModel):
+    name: str
+    description: str = ""
+    total_days_to_tower: int
+    stages: List[SeedlingStageIn]
+    notes: str = ""
+
+class SeedlingBatchIn(BaseModel):
+    seedling_type_id: str
+    batch_name: str
+    quantity: int = 0
+    sown_date: str            # YYYY-MM-DD
+    expected_transplant_date: Optional[str] = None
+    tray_location: str = ""
+    notes: str = ""
+
+class SeedlingBatchUpdate(BaseModel):
+    batch_name: Optional[str] = None
+    quantity: Optional[int] = None
+    expected_transplant_date: Optional[str] = None
+    tray_location: Optional[str] = None
+    notes: Optional[str] = None
+    current_stage_index: Optional[int] = None
+
+class SeedlingTransplantIn(BaseModel):
+    actual_transplant_date: str
+    tower_destination: str = ""
+    notes: str = ""
+
+class SeedlingWateringIn(BaseModel):
+    batch_id: str
+    log_date: str             # YYYY-MM-DD
+    session: str              # "morning" | "evening"
+    watered: bool = True
+    ec_before: Optional[float] = None
+    water_temp_before: Optional[float] = None
+    ec_target_min: Optional[float] = None
+    ec_target_max: Optional[float] = None
+    ec_actual: Optional[float] = None
+    notes: str = ""
+
 class AdminOtpVerifyIn(BaseModel):
     otp: str
 
@@ -562,6 +614,150 @@ async def reset_password(body: ResetPasswordIn):
     return {"ok": True, "message": "Password has been reset. Please sign in."}
 
 
+# ---------- SEEDLING MANAGEMENT ----------
+@api.get("/seedlings/types")
+async def list_seedling_types(user=Depends(current_user)):
+    return await db.seedling_types.find({}, {"_id": 0}).sort("name", 1).to_list(200)
+
+@api.post("/seedlings/types")
+async def create_seedling_type(body: SeedlingTypeIn, user=Depends(current_user)):
+    t = body.model_dump()
+    # ensure stages ordered
+    t["stages"] = sorted(t["stages"], key=lambda s: s.get("order_index", 0))
+    t.update({"id": str(uuid.uuid4()), "created_at": now_utc(), "created_by": user["id"]})
+    await db.seedling_types.insert_one(t.copy()); t.pop("_id", None); return t
+
+@api.put("/seedlings/types/{tid}")
+async def update_seedling_type(tid: str, body: SeedlingTypeIn, user=Depends(current_user)):
+    u = body.model_dump()
+    u["stages"] = sorted(u["stages"], key=lambda s: s.get("order_index", 0))
+    u["updated_at"] = now_utc()
+    r = await db.seedling_types.update_one({"id": tid}, {"$set": u})
+    if r.matched_count == 0: raise HTTPException(404, "Seedling type not found")
+    return await db.seedling_types.find_one({"id": tid}, {"_id": 0})
+
+@api.delete("/seedlings/types/{tid}")
+async def delete_seedling_type(tid: str, user=Depends(current_user)):
+    # block delete if active batches exist
+    active = await db.seedling_batches.count_documents({"seedling_type_id": tid, "status": "active"})
+    if active: raise HTTPException(400, f"Cannot delete: {active} active batch(es) of this type")
+    await db.seedling_types.delete_one({"id": tid}); return {"ok": True}
+
+# ----- BATCHES -----
+def _compute_stage_progress(batch, sed_type):
+    """Given a batch + its seedling type, compute current stage index, day-in-stage, days-since-sown."""
+    try:
+        sown = datetime.strptime(batch["sown_date"], "%Y-%m-%d").date()
+    except Exception:
+        return {"current_stage_index": 0, "day_in_stage": 0, "days_since_sown": 0, "current_stage": None}
+    today_d = datetime.now(timezone.utc).date()
+    days_since = (today_d - sown).days
+    if days_since < 0: days_since = 0
+    stages = sed_type.get("stages", []) if sed_type else []
+    elapsed = 0
+    idx = 0
+    for i, s in enumerate(stages):
+        d = max(1, int(s.get("duration_days", 0) or 0))
+        if days_since < elapsed + d:
+            idx = i
+            return {"current_stage_index": i, "day_in_stage": days_since - elapsed + 1,
+                    "days_since_sown": days_since, "current_stage": s}
+        elapsed += d
+        idx = i
+    # past last stage -> ready to transplant
+    last = stages[-1] if stages else None
+    return {"current_stage_index": idx, "day_in_stage": (days_since - (elapsed - (last.get("duration_days",0) if last else 0))) if last else 0,
+            "days_since_sown": days_since, "current_stage": last, "ready_to_transplant": True}
+
+@api.get("/seedlings/batches")
+async def list_seedling_batches(status: Optional[str] = None, user=Depends(current_user)):
+    q = {}
+    if status: q["status"] = status
+    batches = await db.seedling_batches.find(q, {"_id": 0}).sort("sown_date", -1).to_list(500)
+    types = {t["id"]: t for t in await db.seedling_types.find({}, {"_id": 0}).to_list(500)}
+    for b in batches:
+        t = types.get(b.get("seedling_type_id"))
+        b["seedling_type_name"] = t["name"] if t else "Unknown"
+        b["progress"] = _compute_stage_progress(b, t) if t else {}
+    return batches
+
+@api.post("/seedlings/batches")
+async def create_seedling_batch(body: SeedlingBatchIn, user=Depends(current_user)):
+    t = await db.seedling_types.find_one({"id": body.seedling_type_id}, {"_id": 0})
+    if not t: raise HTTPException(404, "Seedling type not found")
+    b = body.model_dump()
+    if not b.get("expected_transplant_date"):
+        try:
+            sown = datetime.strptime(b["sown_date"], "%Y-%m-%d").date()
+            b["expected_transplant_date"] = (sown + timedelta(days=t.get("total_days_to_tower", 21))).isoformat()
+        except Exception:
+            pass
+    b.update({"id": str(uuid.uuid4()), "status": "active",
+              "current_stage_index": 0, "actual_transplant_date": None, "tower_destination": None,
+              "created_at": now_utc(), "created_by": user["id"], "user_name": user["name"]})
+    await db.seedling_batches.insert_one(b.copy()); b.pop("_id", None); return b
+
+@api.get("/seedlings/batches/{bid}")
+async def get_seedling_batch(bid: str, user=Depends(current_user)):
+    b = await db.seedling_batches.find_one({"id": bid}, {"_id": 0})
+    if not b: raise HTTPException(404, "Batch not found")
+    t = await db.seedling_types.find_one({"id": b["seedling_type_id"]}, {"_id": 0})
+    b["seedling_type"] = t
+    b["seedling_type_name"] = t["name"] if t else "Unknown"
+    b["progress"] = _compute_stage_progress(b, t) if t else {}
+    b["watering_logs"] = await db.seedling_watering.find({"batch_id": bid}, {"_id": 0}).sort("log_date", -1).to_list(500)
+    return b
+
+@api.put("/seedlings/batches/{bid}")
+async def update_seedling_batch(bid: str, body: SeedlingBatchUpdate, user=Depends(current_user)):
+    upd = {k: v for k, v in body.model_dump().items() if v is not None}
+    upd["updated_at"] = now_utc()
+    r = await db.seedling_batches.update_one({"id": bid}, {"$set": upd})
+    if r.matched_count == 0: raise HTTPException(404, "Batch not found")
+    return await db.seedling_batches.find_one({"id": bid}, {"_id": 0})
+
+@api.post("/seedlings/batches/{bid}/transplant")
+async def transplant_batch(bid: str, body: SeedlingTransplantIn, user=Depends(current_user)):
+    r = await db.seedling_batches.update_one({"id": bid}, {"$set": {
+        "status": "transplanted",
+        "actual_transplant_date": body.actual_transplant_date,
+        "tower_destination": body.tower_destination,
+        "transplant_notes": body.notes,
+        "transplanted_at": now_utc(),
+        "transplanted_by": user["id"],
+    }})
+    if r.matched_count == 0: raise HTTPException(404, "Batch not found")
+    return {"ok": True}
+
+@api.delete("/seedlings/batches/{bid}")
+async def delete_seedling_batch(bid: str, user=Depends(current_user)):
+    await db.seedling_watering.delete_many({"batch_id": bid})
+    await db.seedling_batches.delete_one({"id": bid})
+    return {"ok": True}
+
+# ----- WATERING LOGS -----
+@api.post("/seedlings/watering")
+async def create_watering_log(body: SeedlingWateringIn, user=Depends(current_user)):
+    if body.session not in ("morning", "evening"):
+        raise HTTPException(400, "session must be morning|evening")
+    if not await db.seedling_batches.find_one({"id": body.batch_id}):
+        raise HTTPException(404, "Batch not found")
+    d = body.model_dump()
+    d.update({"id": str(uuid.uuid4()), "recorded_by": user["id"], "user_name": user["name"], "created_at": now_utc()})
+    await db.seedling_watering.insert_one(d.copy()); d.pop("_id", None); return d
+
+@api.get("/seedlings/watering")
+async def list_watering(batch_id: Optional[str] = None, date: Optional[str] = None, user=Depends(current_user)):
+    q = {}
+    if batch_id: q["batch_id"] = batch_id
+    if date: q["log_date"] = date
+    return await db.seedling_watering.find(q, {"_id": 0}).sort("log_date", -1).to_list(1000)
+
+@api.delete("/seedlings/watering/{wid}")
+async def delete_watering_log(wid: str, user=Depends(current_user)):
+    await db.seedling_watering.delete_one({"id": wid}); return {"ok": True}
+
+
 # ---------- DASHBOARD ----------
 @api.get("/dashboard")
 async def dashboard(user=Depends(current_user)):
@@ -622,6 +818,34 @@ async def startup():
              "created_at": now_utc()},
         ]
         await db.crops.insert_many(examples); logger.info("Seeded crops")
+    if await db.seedling_types.count_documents({}) == 0:
+        seedling_examples = [
+            {"id": str(uuid.uuid4()), "name": "Lettuce", "description": "Leafy green seedling.",
+             "total_days_to_tower": 21,
+             "stages": [
+                 {"stage_name": "Germination", "order_index": 0, "duration_days": 4, "ec_min": 0.2, "ec_max": 0.4, "water_temp_min": 20, "water_temp_max": 24, "notes": "Keep moist"},
+                 {"stage_name": "Cotyledon",   "order_index": 1, "duration_days": 5, "ec_min": 0.4, "ec_max": 0.8, "water_temp_min": 19, "water_temp_max": 23, "notes": "First leaves emerge"},
+                 {"stage_name": "True Leaf",   "order_index": 2, "duration_days": 7, "ec_min": 0.8, "ec_max": 1.2, "water_temp_min": 18, "water_temp_max": 22, "notes": "Ready to harden off"},
+                 {"stage_name": "Pre-Transplant", "order_index": 3, "duration_days": 5, "ec_min": 1.0, "ec_max": 1.4, "water_temp_min": 18, "water_temp_max": 22, "notes": "Harden before tower"},
+             ], "notes": "", "created_at": now_utc()},
+            {"id": str(uuid.uuid4()), "name": "Basil", "description": "Aromatic herb seedling.",
+             "total_days_to_tower": 25,
+             "stages": [
+                 {"stage_name": "Germination",  "order_index": 0, "duration_days": 5, "ec_min": 0.2, "ec_max": 0.4, "water_temp_min": 22, "water_temp_max": 26, "notes": ""},
+                 {"stage_name": "Cotyledon",    "order_index": 1, "duration_days": 6, "ec_min": 0.5, "ec_max": 0.9, "water_temp_min": 21, "water_temp_max": 25, "notes": ""},
+                 {"stage_name": "True Leaf",    "order_index": 2, "duration_days": 8, "ec_min": 0.9, "ec_max": 1.4, "water_temp_min": 20, "water_temp_max": 24, "notes": ""},
+                 {"stage_name": "Pre-Transplant","order_index": 3, "duration_days": 6, "ec_min": 1.2, "ec_max": 1.6, "water_temp_min": 20, "water_temp_max": 24, "notes": ""},
+             ], "notes": "", "created_at": now_utc()},
+            {"id": str(uuid.uuid4()), "name": "Tomato", "description": "Fruiting crop seedling.",
+             "total_days_to_tower": 28,
+             "stages": [
+                 {"stage_name": "Germination", "order_index": 0, "duration_days": 6, "ec_min": 0.3, "ec_max": 0.5, "water_temp_min": 22, "water_temp_max": 26, "notes": ""},
+                 {"stage_name": "Cotyledon",   "order_index": 1, "duration_days": 7, "ec_min": 0.6, "ec_max": 1.0, "water_temp_min": 21, "water_temp_max": 25, "notes": ""},
+                 {"stage_name": "True Leaf",   "order_index": 2, "duration_days": 9, "ec_min": 1.0, "ec_max": 1.6, "water_temp_min": 20, "water_temp_max": 24, "notes": ""},
+                 {"stage_name": "Pre-Transplant","order_index": 3, "duration_days": 6, "ec_min": 1.4, "ec_max": 2.0, "water_temp_min": 20, "water_temp_max": 24, "notes": ""},
+             ], "notes": "", "created_at": now_utc()},
+        ]
+        await db.seedling_types.insert_many(seedling_examples); logger.info("Seeded seedling types")
     scheduler.add_job(reminder_worker, "interval", minutes=1, id="reminder_worker", replace_existing=True)
     if not scheduler.running: scheduler.start()
 

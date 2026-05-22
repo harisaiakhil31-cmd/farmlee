@@ -161,6 +161,72 @@ backend:
         agent: "main"
         comment: "Already present in server.py; uses purpose='audit' OTPs valid 10 min."
 
+  - task: "Seedling Management endpoints (/api/seedlings/types, /batches, /watering)"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: |
+          Comprehensive test run via /app/backend_seedling_test.py against
+          https://hydro-check-log.preview.emergentagent.com/api. Result: 55/55 PASS.
+          Auth done by login -> verify-otp; OTP fetched from MongoDB
+          (db.otp_codes purpose='login') since Gmail SMTP delivers the real code.
+
+          GET /api/seedlings/types: returns seeded Lettuce / Basil / Tomato. Each
+          type has id, name, total_days_to_tower, stages[] with stage_name,
+          duration_days, ec_min, ec_max. ✓
+
+          POST /api/seedlings/types: creates a new type; stages provided with
+          shuffled order_index ([3,0,2,1]) come back sorted to [0,1,2,3]
+          (Germination/Cotyledon/True Leaf/Pre-Transplant). Returns new id. ✓
+
+          PUT /api/seedlings/types/{id}: name + total_days_to_tower updated,
+          stages can be trimmed (3 stages persisted). ✓
+
+          DELETE /api/seedlings/types/{id}: returns 400 while an active batch of
+          that type exists, returns 200 once batches are removed. ✓
+
+          POST /api/seedlings/batches: 200 with seedling_type_id, batch_name,
+          quantity, sown_date. Server auto-fills expected_transplant_date =
+          sown_date + total_days_to_tower (verified 2026-01-10 + 28 = 2026-02-07)
+          and defaults status='active'. Unknown seedling_type_id -> 404. ✓
+
+          GET /api/seedlings/batches: returns list with seedling_type_name + a
+          fully populated progress object (current_stage_index, day_in_stage,
+          days_since_sown, current_stage). ?status=active filter works. ✓
+
+          GET /api/seedlings/batches/{id}: returns single batch with
+          seedling_type expanded as object, seedling_type_name, progress, and
+          watering_logs[] inline. ✓
+
+          PUT /api/seedlings/batches/{id}: batch_name, quantity, tray_location
+          all update correctly. ✓
+
+          POST /api/seedlings/batches/{id}/transplant: sets status='transplanted',
+          actual_transplant_date='2026-01-29', tower_destination='Tower #4'. ✓
+
+          POST /api/seedlings/watering: creates morning + evening logs on the
+          SAME day (2026-01-15) — both persist. Invalid session ('noon') -> 400
+          'session must be morning|evening'. Unknown batch_id -> 404
+          'Batch not found'. ✓
+
+          GET /api/seedlings/watering?batch_id={id}: returns 3 logs sorted by
+          log_date desc; both morning and evening sessions present for 2026-01-15. ✓
+
+          DELETE /api/seedlings/batches/{id}: returns 200, subsequent GET on the
+          batch returns 404, and GET /seedlings/watering?batch_id={deleted} now
+          returns []  — confirming the watering-log cascade delete. ✓
+
+          No-auth: all 12 endpoints return 401 'Missing token' when called
+          without a Bearer header. ✓
+
+          No backend modifications were made.
+
   - task: "Password change & reset endpoints (/api/auth/change-password, /forgot-password, /reset-password)"
     implemented: true
     working: true
@@ -224,6 +290,24 @@ backend:
           were made. Endpoints are working correctly.
 
 frontend:
+  - task: "Seedling Management — new tab + 4 screens (list, new batch, batch detail, plant types)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/(tabs)/seedlings.tsx, seedling-new.tsx, seedling-batch.tsx, seedling-types.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Built new "Seedlings" tab (6th tab with flower icon) showing active and
+          past batches with progress info, plus 3 modal screens:
+          - seedling-new: pick plant type, name, qty, sow date, tray
+          - seedling-batch: stage progress timeline, watering log buttons
+            (morning/evening), transplant action, full watering history
+          - seedling-types: list/edit/delete plant templates with stage editor
+
   - task: "Excel export UI on Reports screen with date presets + native share"
     implemented: true
     working: "NA"

@@ -16,7 +16,7 @@ export default function TabsLayout() {
           paddingTop: 8,
           paddingBottom: 18,
         },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
+        tabBarLabelStyle: { fontSize: 10, fontWeight: "600" },
       }}
     >
       <Tabs.Screen name="dashboard" options={{
@@ -26,6 +26,10 @@ export default function TabsLayout() {
       <Tabs.Screen name="calendar" options={{
         title: "Calendar",
         tabBarIcon: ({ color, size }) => <Ionicons name="calendar" size={size} color={color} />,
+      }} />
+      <Tabs.Screen name="seedlings" options={{
+        title: "Seedlings",
+        tabBarIcon: ({ color, size }) => <Ionicons name="flower" size={size} color={color} />,
       }} />
       <Tabs.Screen name="crops" options={{
         title: "Crops",
