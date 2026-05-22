@@ -44,8 +44,8 @@ export default function Login() {
         <View style={styles.card} testID="login-card">
           <View style={styles.logoWrap}>
             <View style={styles.logo}><Ionicons name="leaf" size={28} color="#fff" /></View>
-            <Text style={styles.brand}>HydroManager</Text>
-            <Text style={styles.tagline}>Hydroponic operations · Daily control</Text>
+            <Text style={styles.brand}>Farmlee Manager</Text>
+            <Text style={styles.tagline}>Hydroponic farm operations · Daily control</Text>
           </View>
 
           <Text style={styles.label}>EMAIL</Text>

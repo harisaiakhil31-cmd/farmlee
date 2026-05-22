@@ -1,4 +1,4 @@
-"""HydroManager Backend v2 - restructured per user requirements.
+"""Farmlee Manager Backend v2 - restructured per user requirements.
 
 Sections:
 - Tank readings (4 tanks, AM/Evening, pH/EC/Temp w/ target ranges)
@@ -16,7 +16,9 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-import os, logging, secrets, bcrypt, jwt, uuid
+import os, logging, secrets, bcrypt, jwt, uuid, smtplib, ssl
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from pathlib import Path
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
@@ -40,7 +42,10 @@ JWT_SECRET = os.environ['JWT_SECRET']
 JWT_ALG = os.environ.get('JWT_ALGORITHM', 'HS256')
 SENDGRID_KEY = os.environ.get('SENDGRID_API_KEY', '')
 RESEND_KEY = os.environ.get('RESEND_API_KEY', '')
-SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'HydroManager <onboarding@resend.dev>')
+GMAIL_USER = os.environ.get('GMAIL_USER', '')
+GMAIL_APP_PASSWORD = os.environ.get('GMAIL_APP_PASSWORD', '').replace(' ', '')
+SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'Farmlee Manager <noreply@farmlee.app>')
+SENDER_NAME = os.environ.get('SENDER_NAME', 'Farmlee Manager')
 ADMIN_EMAIL = os.environ['ADMIN_EMAIL']
 ADMIN_PASSWORD = os.environ['ADMIN_PASSWORD']
 MAX_USERS = int(os.environ.get('MAX_USERS', 3))
@@ -50,7 +55,7 @@ if RESEND_KEY:
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
-app = FastAPI(title="HydroManager API")
+app = FastAPI(title="Farmlee Manager API")
 api = APIRouter(prefix="/api")
 bearer = HTTPBearer(auto_error=False)
 scheduler = AsyncIOScheduler()
@@ -64,21 +69,34 @@ def verify_pwd(p, h):
 def make_token(uid, email):
     return jwt.encode({"sub": uid, "email": email, "exp": now_utc() + timedelta(days=30), "iat": now_utc()}, JWT_SECRET, algorithm=JWT_ALG)
 
+def _send_via_gmail(to, subject, html):
+    """Send email via Gmail SMTP (sync)."""
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = SENDER_EMAIL or GMAIL_USER
+    msg["To"] = to
+    msg.attach(MIMEText(html, "html"))
+    ctx = ssl.create_default_context()
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ctx, timeout=15) as s:
+        s.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+        s.sendmail(GMAIL_USER, [to], msg.as_string())
+
 def send_email(to, subject, html):
-    """Send email via Resend (preferred) or SendGrid (fallback) or dev log."""
-    # Try Resend first
+    """Try Gmail SMTP -> Resend -> SendGrid -> dev log."""
+    if GMAIL_USER and GMAIL_APP_PASSWORD:
+        try:
+            _send_via_gmail(to, subject, html)
+            logger.info(f"Gmail OK -> {to} | {subject}")
+            return True
+        except Exception as e:
+            logger.error(f"Gmail SMTP: {e}")
+            # fall through
     if RESEND_KEY:
         try:
-            resend.Emails.send({
-                "from": SENDER_EMAIL,
-                "to": [to],
-                "subject": subject,
-                "html": html,
-            })
+            resend.Emails.send({"from": SENDER_EMAIL, "to": [to], "subject": subject, "html": html})
             return True
         except Exception as e:
             logger.error(f"Resend: {e}")
-            # fall through to SendGrid / dev log
     if SENDGRID_KEY:
         try:
             SendGridAPIClient(SENDGRID_KEY).send(Mail(from_email=SENDER_EMAIL, to_emails=to, subject=subject, html_content=html))
@@ -86,7 +104,6 @@ def send_email(to, subject, html):
         except Exception as e:
             logger.error(f"SendGrid: {e}")
             return False
-    # Dev mode
     logger.warning(f"[DEV-EMAIL] To={to} | {subject}\n{html}")
     return True
 
@@ -225,8 +242,8 @@ async def login(body: LoginIn, request: Request):
     await db.otp_codes.delete_many({"email": body.email.lower(), "purpose": "login"})
     await db.otp_codes.insert_one({"email": body.email.lower(), "otp": otp, "purpose": "login",
         "expires_at": now_utc() + timedelta(minutes=10), "created_at": now_utc()})
-    html = f"<div style='font-family:Arial;padding:24px;background:#F9F8F6'><h2 style='color:#1B2E1C'>HydroManager Login Code</h2><p>Hi {user.get('name','')}, your sign-in code:</p><div style='font-size:36px;letter-spacing:8px;font-weight:700;color:#4A5D23;background:#fff;padding:20px;text-align:center;border-radius:12px'>{otp}</div><p style='color:#888;font-size:12px'>Expires in 10 minutes.</p></div>"
-    send_email(body.email, "HydroManager verification code", html)
+    html = f"<div style='font-family:Arial;padding:24px;background:#F9F8F6'><h2 style='color:#1B2E1C'>Farmlee Manager Login Code</h2><p>Hi {user.get('name','')}, your sign-in code:</p><div style='font-size:36px;letter-spacing:8px;font-weight:700;color:#4A5D23;background:#fff;padding:20px;text-align:center;border-radius:12px'>{otp}</div><p style='color:#888;font-size:12px'>Expires in 10 minutes.</p></div>"
+    send_email(body.email, "Farmlee Manager verification code", html)
     # Store pending login (for audit on success)
     await db.pending_logins.delete_many({"email": body.email.lower()})
     await db.pending_logins.insert_one({
@@ -237,7 +254,7 @@ async def login(body: LoginIn, request: Request):
         "created_at": now_utc(),
     })
     resp = {"message": "OTP sent to your email", "email": body.email.lower()}
-    if not SENDGRID_KEY and not RESEND_KEY: resp["dev_otp"] = otp
+    if not SENDGRID_KEY and not RESEND_KEY and not GMAIL_USER: resp["dev_otp"] = otp
     return resp
 
 @api.post("/auth/verify-otp")
@@ -280,8 +297,8 @@ async def invite_user(body: InviteUserIn, admin=Depends(admin_required)):
     u = {"id": str(uuid.uuid4()), "email": body.email.lower(), "name": body.name,
          "password_hash": hash_pwd(body.password), "role": "member", "created_at": now_utc()}
     await db.users.insert_one(u)
-    send_email(body.email, "Welcome to HydroManager",
-        f"<div style='font-family:Arial;padding:24px'><h2>Welcome to HydroManager</h2><p>Email: {body.email}<br/>Temporary password: {body.password}</p></div>")
+    send_email(body.email, "Welcome to Farmlee Manager",
+        f"<div style='font-family:Arial;padding:24px'><h2>Welcome to Farmlee Manager</h2><p>Email: {body.email}<br/>Temporary password: {body.password}</p></div>")
     return {"id": u["id"], "email": u["email"], "name": u["name"]}
 
 @api.delete("/users/{uid}")
@@ -478,10 +495,10 @@ async def admin_request_otp(admin=Depends(admin_required)):
     await db.otp_codes.delete_many({"email": admin["email"], "purpose": "audit"})
     await db.otp_codes.insert_one({"email": admin["email"], "otp": otp, "purpose": "audit",
         "expires_at": now_utc() + timedelta(minutes=10), "created_at": now_utc()})
-    send_email(admin["email"], "HydroManager audit access code",
+    send_email(admin["email"], "Farmlee Manager audit access code",
         f"<div style='font-family:Arial;padding:24px;background:#F9F8F6'><h2 style='color:#1B2E1C'>Audit Log Access</h2><p>Use this code to view the audit log:</p><div style='font-size:36px;letter-spacing:8px;font-weight:700;color:#CC7753;background:#fff;padding:20px;text-align:center;border-radius:12px'>{otp}</div></div>")
     resp = {"message": "OTP sent"}
-    if not SENDGRID_KEY and not RESEND_KEY: resp["dev_otp"] = otp
+    if not SENDGRID_KEY and not RESEND_KEY and not GMAIL_USER: resp["dev_otp"] = otp
     return resp
 
 @api.post("/admin/audit/verify")
@@ -522,9 +539,9 @@ async def forgot_password(body: ForgotPasswordIn):
     await db.otp_codes.delete_many({"email": body.email.lower(), "purpose": "reset"})
     await db.otp_codes.insert_one({"email": body.email.lower(), "otp": otp, "purpose": "reset",
         "expires_at": now_utc() + timedelta(minutes=15), "created_at": now_utc()})
-    html = f"<div style='font-family:Arial;padding:24px;background:#F9F8F6'><h2 style='color:#1B2E1C'>Password reset code</h2><p>Hi {user.get('name','')}, use this code to reset your HydroManager password:</p><div style='font-size:36px;letter-spacing:8px;font-weight:700;color:#CC7753;background:#fff;padding:20px;text-align:center;border-radius:12px'>{otp}</div><p style='color:#888;font-size:12px'>Expires in 15 minutes. If you didn't request this, you can ignore this email.</p></div>"
-    send_email(body.email, "HydroManager password reset code", html)
-    if not SENDGRID_KEY and not RESEND_KEY: resp["dev_otp"] = otp
+    html = f"<div style='font-family:Arial;padding:24px;background:#F9F8F6'><h2 style='color:#1B2E1C'>Password reset code</h2><p>Hi {user.get('name','')}, use this code to reset your Farmlee Manager password:</p><div style='font-size:36px;letter-spacing:8px;font-weight:700;color:#CC7753;background:#fff;padding:20px;text-align:center;border-radius:12px'>{otp}</div><p style='color:#888;font-size:12px'>Expires in 15 minutes. If you didn't request this, you can ignore this email.</p></div>"
+    send_email(body.email, "Farmlee Manager password reset code", html)
+    if not SENDGRID_KEY and not RESEND_KEY and not GMAIL_USER: resp["dev_otp"] = otp
     return resp
 
 @api.post("/auth/reset-password")
@@ -572,7 +589,7 @@ async def reminder_worker():
             try:
                 if r.get("notify_email", True):
                     send_email(r["user_email"], f"Reminder: {r.get('title','')}",
-                        f"<div style='font-family:Arial;padding:24px;background:#F9F8F6'><h2 style='color:#1B2E1C'>🌱 HydroManager Reminder</h2><h3 style='color:#4A5D23'>{r.get('title','')}</h3><p>{r.get('description','')}</p></div>")
+                        f"<div style='font-family:Arial;padding:24px;background:#F9F8F6'><h2 style='color:#1B2E1C'>🌱 Farmlee Manager Reminder</h2><h3 style='color:#4A5D23'>{r.get('title','')}</h3><p>{r.get('description','')}</p></div>")
                 await db.reminders.update_one({"id": r["id"]}, {"$set": {"fired": True, "fired_at": now_utc()}})
             except Exception as e:
                 logger.error(f"Fire: {e}")
@@ -750,7 +767,7 @@ async def export_monthly(start: Optional[str] = None, end: Optional[str] = None,
 
 
 @api.get("/")
-async def root(): return {"service": "HydroManager API", "status": "ok"}
+async def root(): return {"service": "Farmlee Manager API", "status": "ok"}
 
 @api.get("/health")
 async def health(): return {"status": "healthy", "time": now_utc().isoformat()}
