@@ -1,29 +1,32 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { useFonts } from "expo-font";
-import * as SplashScreen from "expo-splash-screen";
-
-SplashScreen.preventAutoHideAsync().catch(() => {});
+import * as Font from "expo-font";
+import { Ionicons } from "@expo/vector-icons";
 
 export default function RootLayout() {
-  const [loaded] = useFonts({
-    Ionicons: require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf"),
-  });
+  const [fontsReady, setFontsReady] = useState(false);
 
   useEffect(() => {
-    if (loaded) SplashScreen.hideAsync().catch(() => {});
-  }, [loaded]);
-
-  if (!loaded) return null;
+    // Non-blocking font load — app renders immediately, icons appear once font loads
+    Font.loadAsync(Ionicons.font as any)
+      .then(() => setFontsReady(true))
+      .catch((e) => {
+        console.warn("Icon font load failed (non-fatal):", e);
+        setFontsReady(true); // render anyway so app isn't stuck
+      });
+  }, []);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <StatusBar style="dark" />
-        <Stack screenOptions={{ headerShown: false, animation: "slide_from_right" }}>
+        <Stack
+          key={fontsReady ? "ready" : "loading"}
+          screenOptions={{ headerShown: false, animation: "slide_from_right" }}
+        >
           <Stack.Screen name="index" />
           <Stack.Screen name="login" />
           <Stack.Screen name="verify-otp" />
