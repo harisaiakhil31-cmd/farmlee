@@ -31,6 +31,24 @@ Pull GitHub repo "hydro-check-log" (Expo React Native + FastAPI + MongoDB app ca
 cd /app/frontend && yarn build:web   # rebuilds dist/
 sudo supervisorctl restart frontend  # re-serve
 ```
+**Note**: `yarn start` now auto-builds via a portable Node-based `prestart` hook if `dist/index.html` is missing. Safe for fresh deploys.
+
+## Email (Gmail SMTP active as of 2026-05-23)
+- `GMAIL_USER=akhilharisai@gmail.com`
+- `GMAIL_APP_PASSWORD` set in `/app/backend/.env` (gitignored)
+- Real OTP emails verified: backend log `Gmail OK -> akhilharisai@gmail.com`
+
+## Pre-Deploy Health Check (2026-05-23)
+- ✅ Frontend HTTP 200 on preview URL
+- ✅ Backend /api/health OK, /api/ root OK
+- ✅ Admin login works, no `dev_otp` leak (real email sent via Gmail)
+- ✅ All supervisor services RUNNING (backend, frontend, mongodb)
+- ✅ Both .env files populated and gitignored
+- ✅ Zero hardcoded URLs in source code
+- ✅ frontend/dist/ build artifact present (8.6 MB, 34 routes)
+- ✅ Portable `prestart` script auto-rebuilds on fresh deploy
+- ✅ `.emergent/emergent.yml` uses `fastapi_react_mongo_shadcn_base_image_cloud_arm` (correct for web deploy)
+- **VERDICT: GO** — ready for permanent `.emergent.host` deployment
 
 ## Next Action Items (User)
 1. **Click the Deploy button** (top-right of the Emergent chat) → **"Deploy Now"**.

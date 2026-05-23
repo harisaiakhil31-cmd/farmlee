@@ -3,7 +3,8 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
-    "start": "if [ ! -f dist/index.html ]; then yarn build:web; fi && serve -s dist -l tcp://0.0.0.0:3000 --no-clipboard",
+    "prestart": "node -e \"const fs=require('fs');if(!fs.existsSync('dist/index.html')){console.log('[prestart] dist/ missing — running build...');require('child_process').execSync('yarn build:web',{stdio:'inherit'});}else{console.log('[prestart] dist/ present — skipping build');}\"",
+    "start": "serve -s dist -l tcp://0.0.0.0:3000 --no-clipboard",
     "build": "expo export --platform web --output-dir dist",
     "build:web": "expo export --platform web --output-dir dist",
     "dev": "expo start",
