@@ -284,6 +284,12 @@ def validate_password_strength(pwd: str):
         raise HTTPException(400, "Password must include a special character")
 
 
+class TankAssignmentIn(BaseModel):
+    crop_id: Optional[str] = None
+    stage_index: int = 0
+    notes: str = ""
+
+
 # ---------- AUTH + AUDIT ----------
 @api.post("/auth/login")
 async def login(body: LoginIn, request: Request):
@@ -376,6 +382,66 @@ async def list_tanks(date: Optional[str] = None, user=Depends(current_user)):
     if date: q["check_date"] = date
     return await db.tank_readings.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
 
+@api.put("/tanks/reading/{rid}")
+async def update_tank(rid: str, body: TankReadingIn, user=Depends(current_user)):
+    if body.tank_id < 1 or body.tank_id > 4: raise HTTPException(400, "tank_id must be 1..4")
+    if body.session not in ("morning", "evening"): raise HTTPException(400, "session must be morning|evening")
+    upd = body.model_dump()
+    upd["updated_at"] = now_utc()
+    upd["updated_by"] = user["id"]
+    r = await db.tank_readings.update_one({"id": rid}, {"$set": upd})
+    if r.matched_count == 0: raise HTTPException(404, "Tank reading not found")
+    return await db.tank_readings.find_one({"id": rid}, {"_id": 0})
+
+@api.delete("/tanks/reading/{rid}")
+async def delete_tank(rid: str, user=Depends(current_user)):
+    r = await db.tank_readings.delete_one({"id": rid})
+    if r.deleted_count == 0: raise HTTPException(404, "Tank reading not found")
+    return {"ok": True}
+
+
+# ---------- TANK-CROP ASSIGNMENTS ----------
+@api.get("/tanks/assignments")
+async def list_tank_assignments(user=Depends(current_user)):
+    """Return current crop+stage assignment for each of the 4 tanks (with crop details)."""
+    items = await db.tank_assignments.find({}, {"_id": 0}).to_list(20)
+    crops_by_id = {c["id"]: c for c in await db.crops.find({}, {"_id": 0}).to_list(500)}
+    out = []
+    for t in range(1, 5):
+        a = next((x for x in items if x.get("tank_id") == t), None)
+        if a:
+            crop = crops_by_id.get(a.get("crop_id"))
+            stage = None
+            if crop and crop.get("stages") and 0 <= a.get("stage_index", 0) < len(crop["stages"]):
+                stage = crop["stages"][a["stage_index"]]
+            out.append({**a, "crop": crop, "stage": stage})
+        else:
+            out.append({"tank_id": t, "crop_id": None, "stage_index": 0, "crop": None, "stage": None})
+    return out
+
+@api.put("/tanks/assignments/{tank_id}")
+async def upsert_tank_assignment(tank_id: int, body: TankAssignmentIn, user=Depends(current_user)):
+    if tank_id < 1 or tank_id > 4: raise HTTPException(400, "tank_id must be 1..4")
+    crop = None
+    stage = None
+    if body.crop_id:
+        crop = await db.crops.find_one({"id": body.crop_id}, {"_id": 0})
+        if not crop: raise HTTPException(404, "Crop not found")
+        stages = crop.get("stages", [])
+        if body.stage_index < 0 or body.stage_index >= len(stages):
+            raise HTTPException(400, f"stage_index must be 0..{len(stages)-1}")
+        stage = stages[body.stage_index]
+    upd = {
+        "tank_id": tank_id,
+        "crop_id": body.crop_id,
+        "stage_index": body.stage_index,
+        "notes": body.notes,
+        "updated_at": now_utc(),
+        "updated_by": user["id"],
+    }
+    await db.tank_assignments.update_one({"tank_id": tank_id}, {"$set": upd}, upsert=True)
+    return {**upd, "crop": crop, "stage": stage}
+
 
 # ---------- ENVIRONMENT ----------
 @api.post("/environment/reading")
@@ -396,6 +462,20 @@ async def list_env(date: Optional[str] = None, user=Depends(current_user)):
         avg = {"temperature": round(sum(temps)/len(temps), 2), "humidity": round(sum(hums)/len(hums), 2), "count": len(items)}
     return {"items": items, "average": avg}
 
+@api.put("/environment/reading/{rid}")
+async def update_env(rid: str, body: EnvironmentReadingIn, user=Depends(current_user)):
+    if body.session not in ("morning", "afternoon", "evening"): raise HTTPException(400, "Invalid session")
+    upd = body.model_dump(); upd["updated_at"] = now_utc(); upd["updated_by"] = user["id"]
+    r = await db.environment_readings.update_one({"id": rid}, {"$set": upd})
+    if r.matched_count == 0: raise HTTPException(404, "Environment reading not found")
+    return await db.environment_readings.find_one({"id": rid}, {"_id": 0})
+
+@api.delete("/environment/reading/{rid}")
+async def delete_env(rid: str, user=Depends(current_user)):
+    r = await db.environment_readings.delete_one({"id": rid})
+    if r.deleted_count == 0: raise HTTPException(404, "Environment reading not found")
+    return {"ok": True}
+
 
 # ---------- FIELD TASKS ----------
 @api.post("/field/tasks")
@@ -410,6 +490,19 @@ async def list_field(date: Optional[str] = None, user=Depends(current_user)):
     if date: q["check_date"] = date
     return await db.field_tasks.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
 
+@api.put("/field/tasks/{rid}")
+async def update_field(rid: str, body: FieldTaskIn, user=Depends(current_user)):
+    upd = body.model_dump(); upd["updated_at"] = now_utc(); upd["updated_by"] = user["id"]
+    r = await db.field_tasks.update_one({"id": rid}, {"$set": upd})
+    if r.matched_count == 0: raise HTTPException(404, "Field task not found")
+    return await db.field_tasks.find_one({"id": rid}, {"_id": 0})
+
+@api.delete("/field/tasks/{rid}")
+async def delete_field(rid: str, user=Depends(current_user)):
+    r = await db.field_tasks.delete_one({"id": rid})
+    if r.deleted_count == 0: raise HTTPException(404, "Field task not found")
+    return {"ok": True}
+
 
 # ---------- WEEKLY / MONTHLY CHECKS ----------
 @api.post("/checks/weekly")
@@ -422,6 +515,19 @@ async def create_weekly(body: WeeklyCheckIn, user=Depends(current_user)):
 async def list_weekly(user=Depends(current_user)):
     return await db.weekly_checks.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
 
+@api.put("/checks/weekly/{rid}")
+async def update_weekly(rid: str, body: WeeklyCheckIn, user=Depends(current_user)):
+    upd = body.model_dump(); upd["updated_at"] = now_utc(); upd["updated_by"] = user["id"]
+    r = await db.weekly_checks.update_one({"id": rid}, {"$set": upd})
+    if r.matched_count == 0: raise HTTPException(404, "Weekly check not found")
+    return await db.weekly_checks.find_one({"id": rid}, {"_id": 0})
+
+@api.delete("/checks/weekly/{rid}")
+async def delete_weekly(rid: str, user=Depends(current_user)):
+    r = await db.weekly_checks.delete_one({"id": rid})
+    if r.deleted_count == 0: raise HTTPException(404, "Weekly check not found")
+    return {"ok": True}
+
 @api.post("/checks/monthly")
 async def create_monthly(body: MonthlyCheckIn, user=Depends(current_user)):
     d = body.model_dump()
@@ -431,6 +537,19 @@ async def create_monthly(body: MonthlyCheckIn, user=Depends(current_user)):
 @api.get("/checks/monthly")
 async def list_monthly(user=Depends(current_user)):
     return await db.monthly_checks.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+@api.put("/checks/monthly/{rid}")
+async def update_monthly(rid: str, body: MonthlyCheckIn, user=Depends(current_user)):
+    upd = body.model_dump(); upd["updated_at"] = now_utc(); upd["updated_by"] = user["id"]
+    r = await db.monthly_checks.update_one({"id": rid}, {"$set": upd})
+    if r.matched_count == 0: raise HTTPException(404, "Monthly check not found")
+    return await db.monthly_checks.find_one({"id": rid}, {"_id": 0})
+
+@api.delete("/checks/monthly/{rid}")
+async def delete_monthly(rid: str, user=Depends(current_user)):
+    r = await db.monthly_checks.delete_one({"id": rid})
+    if r.deleted_count == 0: raise HTTPException(404, "Monthly check not found")
+    return {"ok": True}
 
 
 # ---------- WEEKLY REPORT ----------
@@ -495,9 +614,36 @@ async def day_detail(day: str, user=Depends(current_user)):
         env_avg = {"temperature": round(sum(x["temperature"] for x in env)/len(env), 1),
                    "humidity": round(sum(x["humidity"] for x in env)/len(env), 1)}
     today = now_utc().strftime("%Y-%m-%d")
+    # Reminders falling on this date (00:00..23:59 UTC)
+    try:
+        day_dt = datetime.fromisoformat(day).replace(tzinfo=timezone.utc)
+        reminders = await db.reminders.find({"remind_at": {
+            "$gte": day_dt, "$lt": day_dt + timedelta(days=1)
+        }}, {"_id": 0}).sort("remind_at", 1).to_list(100)
+    except Exception:
+        reminders = []
+    # Expected tasks (for any day — list the routine tasks)
+    expected_tasks = [
+        {"type": "daily", "label": "Tank reading — morning (4 tanks)"},
+        {"type": "daily", "label": "Tank reading — evening (4 tanks)"},
+        {"type": "daily", "label": "Environment — morning"},
+        {"type": "daily", "label": "Environment — afternoon"},
+        {"type": "daily", "label": "Environment — evening"},
+        {"type": "daily", "label": "Field tasks (seedling watering, pest, leaves)"},
+    ]
+    # Add weekly/monthly hints
+    try:
+        d_obj = datetime.fromisoformat(day).date()
+        if d_obj.weekday() == 0:  # Monday
+            expected_tasks.append({"type": "weekly", "label": "Weekly check (meters, nutrition, filters)"})
+        if d_obj.day == 1:
+            expected_tasks.append({"type": "monthly", "label": "Monthly check (tanks cleaning, A/B/C, seeds)"})
+    except Exception:
+        pass
     return {"date": day, "is_future": day > today, "is_today": day == today,
             "tanks": tanks, "environment": env, "env_avg": env_avg,
-            "field": field, "weekly": weekly, "monthly": monthly}
+            "field": field, "weekly": weekly, "monthly": monthly,
+            "reminders": reminders, "expected_tasks": expected_tasks}
 
 
 # ---------- CROPS ----------

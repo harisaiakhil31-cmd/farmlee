@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { format } from "date-fns";
 import { api } from "../../src/api";
 import { C, S } from "../../src/theme";
+import HistoryList from "../../src/HistoryList";
 
 export default function MonthlyCheck() {
   const router = useRouter();
@@ -16,11 +17,21 @@ export default function MonthlyCheck() {
   const [seedsOk, setSeedsOk] = useState(false); const [seedsOrdered, setSeedsOrdered] = useState(false);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyKey, setHistoryKey] = useState(0);
+
+  const resetForm = () => {
+    setEditingId(null);
+    setTanksClean(false); setSalt(false); setSaltNote("");
+    setA(""); setB(""); setCc(""); setSolOrdered(false);
+    setSeedsOk(false); setSeedsOrdered(false); setNotes("");
+  };
 
   const save = async () => {
     setSaving(true);
     try {
-      await api.post("/checks/monthly", {
+      const payload = {
         check_date: format(new Date(), "yyyy-MM-dd"),
         tanks_cleaned: tanksClean,
         salt_formation_ok: salt,
@@ -32,19 +43,42 @@ export default function MonthlyCheck() {
         seeds_qty_ok: seedsOk,
         seeds_ordered: seedsOrdered,
         notes,
-      });
-      Alert.alert("Saved", "Monthly check logged");
+      };
+      if (editingId) {
+        await api.put(`/checks/monthly/${editingId}`, payload);
+        Alert.alert("Updated", "Monthly check updated");
+      } else {
+        await api.post("/checks/monthly", payload);
+        Alert.alert("Saved", "Monthly check logged");
+      }
+      resetForm();
+      setHistoryKey((k) => k + 1);
       router.back();
     } catch (e: any) { Alert.alert("Failed", e?.response?.data?.detail || "Try again"); }
     finally { setSaving(false); }
+  };
+
+  const onEdit = (item: any) => {
+    setEditingId(item.id);
+    setTanksClean(!!item.tanks_cleaned);
+    setSalt(!!item.salt_formation_ok); setSaltNote(item.salt_notes || "");
+    setA(item.solution_a_qty != null ? String(item.solution_a_qty) : "");
+    setB(item.solution_b_qty != null ? String(item.solution_b_qty) : "");
+    setCc(item.solution_c_qty != null ? String(item.solution_c_qty) : "");
+    setSolOrdered(!!item.solutions_ordered);
+    setSeedsOk(!!item.seeds_qty_ok); setSeedsOrdered(!!item.seeds_ordered);
+    setNotes(item.notes || "");
+    setHistoryOpen(false);
   };
 
   return (
     <SafeAreaView style={styles.c} edges={["top"]}>
       <View style={styles.head}>
         <TouchableOpacity onPress={() => router.back()}><Ionicons name="close" size={26} color={C.text} /></TouchableOpacity>
-        <Text style={styles.title}>Monthly check</Text>
-        <View style={{ width: 26 }} />
+        <Text style={styles.title}>{editingId ? "Edit monthly check" : "Monthly check"}</Text>
+        <TouchableOpacity onPress={() => setHistoryOpen(true)} style={styles.headIcon} testID="monthly-history-btn">
+          <Ionicons name="time-outline" size={20} color={C.text} />
+        </TouchableOpacity>
       </View>
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
@@ -72,10 +106,29 @@ export default function MonthlyCheck() {
             value={notes} onChangeText={setNotes} multiline />
 
           <TouchableOpacity style={styles.save} onPress={save} disabled={saving} testID="monthly-save">
-            <Text style={styles.saveText}>{saving ? "Saving..." : "Save monthly check"}</Text>
+            <Text style={styles.saveText}>{saving ? "Saving..." : editingId ? "Update monthly check" : "Save monthly check"}</Text>
           </TouchableOpacity>
+          {editingId && (
+            <TouchableOpacity onPress={resetForm} style={{ alignSelf: "center", marginTop: 8 }}>
+              <Text style={{ color: C.danger, fontWeight: "700" }}>Cancel edit</Text>
+            </TouchableOpacity>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <HistoryList
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        title="Monthly checks · history"
+        endpoint="/checks/monthly"
+        renderItem={(it: any) => ({
+          line1: `Tanks ${it.tanks_cleaned ? "✓" : "—"} · Salt ${it.salt_formation_ok ? "✓" : "—"} · Sol ordered ${it.solutions_ordered ? "✓" : "—"} · Seeds ordered ${it.seeds_ordered ? "✓" : "—"}`,
+          line2: `A ${it.solution_a_qty ?? "–"}L · B ${it.solution_b_qty ?? "–"}L · C ${it.solution_c_qty ?? "–"}L`,
+          line3: it.notes ? `Notes: ${it.notes}` : undefined,
+        })}
+        onEdit={onEdit}
+        refreshKey={historyKey}
+      />
     </SafeAreaView>
   );
 }

@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { format } from "date-fns";
 import { api } from "../../src/api";
 import { C, S } from "../../src/theme";
+import HistoryList from "../../src/HistoryList";
 
 export default function WeeklyCheck() {
   const router = useRouter();
@@ -15,31 +16,59 @@ export default function WeeklyCheck() {
   const [filters, setFilters] = useState(false);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyKey, setHistoryKey] = useState(0);
+
+  const resetForm = () => {
+    setEditingId(null);
+    setMeter(false); setNutrition(false); setNutritionNote("");
+    setFilters(false); setNotes("");
+  };
 
   const save = async () => {
     setSaving(true);
     try {
-      await api.post("/checks/weekly", {
+      const payload = {
         check_date: format(new Date(), "yyyy-MM-dd"),
         meter_calibration_done: meter,
         nutrition_quantity_ok: nutrition,
         nutrition_notes: nutritionNote,
         tank_filters_cleaned: filters,
         notes,
-      });
-      Alert.alert("Saved", "Weekly check logged");
+      };
+      if (editingId) {
+        await api.put(`/checks/weekly/${editingId}`, payload);
+        Alert.alert("Updated", "Weekly check updated");
+      } else {
+        await api.post("/checks/weekly", payload);
+        Alert.alert("Saved", "Weekly check logged");
+      }
+      resetForm();
+      setHistoryKey((k) => k + 1);
       router.back();
     } catch (e: any) {
       Alert.alert("Failed", e?.response?.data?.detail || "Try again");
     } finally { setSaving(false); }
   };
 
+  const onEdit = (item: any) => {
+    setEditingId(item.id);
+    setMeter(!!item.meter_calibration_done);
+    setNutrition(!!item.nutrition_quantity_ok); setNutritionNote(item.nutrition_notes || "");
+    setFilters(!!item.tank_filters_cleaned);
+    setNotes(item.notes || "");
+    setHistoryOpen(false);
+  };
+
   return (
     <SafeAreaView style={styles.c} edges={["top"]}>
       <View style={styles.head}>
         <TouchableOpacity onPress={() => router.back()}><Ionicons name="close" size={26} color={C.text} /></TouchableOpacity>
-        <Text style={styles.title}>Weekly check</Text>
-        <View style={{ width: 26 }} />
+        <Text style={styles.title}>{editingId ? "Edit weekly check" : "Weekly check"}</Text>
+        <TouchableOpacity onPress={() => setHistoryOpen(true)} style={styles.headIcon} testID="weekly-history-btn">
+          <Ionicons name="time-outline" size={20} color={C.text} />
+        </TouchableOpacity>
       </View>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: S.md }}>
@@ -51,10 +80,29 @@ export default function WeeklyCheck() {
           <TextInput style={[styles.notes, { minHeight: 80 }]} placeholder="General notes..." placeholderTextColor={C.textMuted}
             value={notes} onChangeText={setNotes} multiline />
           <TouchableOpacity style={styles.save} onPress={save} disabled={saving} testID="weekly-save">
-            <Text style={styles.saveText}>{saving ? "Saving..." : "Save weekly check"}</Text>
+            <Text style={styles.saveText}>{saving ? "Saving..." : editingId ? "Update weekly check" : "Save weekly check"}</Text>
           </TouchableOpacity>
+          {editingId && (
+            <TouchableOpacity onPress={resetForm} style={{ alignSelf: "center", marginTop: 8 }}>
+              <Text style={{ color: C.danger, fontWeight: "700" }}>Cancel edit</Text>
+            </TouchableOpacity>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <HistoryList
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        title="Weekly checks · history"
+        endpoint="/checks/weekly"
+        renderItem={(it: any) => ({
+          line1: `Meter ${it.meter_calibration_done ? "✓" : "—"} · Nutrition ${it.nutrition_quantity_ok ? "✓" : "—"} · Filters ${it.tank_filters_cleaned ? "✓" : "—"}`,
+          line2: it.nutrition_notes ? `Nutrition: ${it.nutrition_notes}` : undefined,
+          line3: it.notes ? `Notes: ${it.notes}` : undefined,
+        })}
+        onEdit={onEdit}
+        refreshKey={historyKey}
+      />
     </SafeAreaView>
   );
 }
@@ -72,7 +120,8 @@ function Toggle({ label, value, onChange, testID }: any) {
 
 const styles = StyleSheet.create({
   c: { flex: 1, backgroundColor: C.bg },
-  head: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: S.md, borderBottomWidth: 1, borderBottomColor: C.border },
+  head: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: S.md, borderBottomWidth: 1, borderBottomColor: C.border, gap: 8 },
+  headIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: C.bg2, alignItems: "center", justifyContent: "center" },
   title: { fontSize: 18, fontWeight: "700", color: C.text },
   tRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: C.card, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: C.border, marginBottom: 10 },
   tLabel: { fontSize: 15, color: C.text, fontWeight: "500" },
