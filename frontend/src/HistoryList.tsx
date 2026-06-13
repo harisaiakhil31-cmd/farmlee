@@ -1,23 +1,14 @@
 import { useEffect, useState, useCallback } from "react";
 import {
-  View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, ActivityIndicator, Alert, Platform,
+  View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, ActivityIndicator, Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "./api";
 import { C, S } from "./theme";
+import { confirmAction } from "./confirm";
 
-// Cross-platform confirm (Alert.alert callbacks don't fire on RNW)
-export const confirmAction = (title: string, message: string, onConfirm: () => void) => {
-  if (Platform.OS === "web") {
-    if (typeof window !== "undefined" && window.confirm(`${title}\n\n${message}`)) onConfirm();
-  } else {
-    Alert.alert(title, message, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: onConfirm },
-    ]);
-  }
-};
+export { confirmAction };
 
 type HistoryProps = {
   open: boolean;

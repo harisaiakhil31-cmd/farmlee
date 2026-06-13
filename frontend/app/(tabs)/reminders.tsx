@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import {
-  View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -8,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { format } from "date-fns";
 import { api } from "../../src/api";
 import { C, S } from "../../src/theme";
+import { confirmAction, notify } from "../../src/confirm";
 
 export default function RemindersTab() {
   const router = useRouter();
@@ -23,11 +24,22 @@ export default function RemindersTab() {
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const onDelete = (id: string) =>
-    Alert.alert("Delete reminder?", "", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: async () => { await api.delete(`/reminders/${id}`); load(); } },
-    ]);
+  const onDelete = (id: string, title: string) =>
+    confirmAction(
+      `Delete reminder?`,
+      `"${title}" will be moved to Trash. Restore from Profile → Trash within 30 days.`,
+      async () => {
+        try {
+          await api.delete(`/reminders/${id}`);
+          notify("Moved to Trash");
+          load();
+        } catch (e: any) {
+          notify("Failed", e?.response?.data?.detail || "Try again");
+        }
+      }
+    );
+
+  const onEdit = (id: string) => router.push({ pathname: "/reminder-new", params: { id } });
 
   const upcoming = items.filter((r) => !r.fired);
   const past = items.filter((r) => r.fired);
@@ -65,7 +77,10 @@ export default function RemindersTab() {
               {!!r.description && <Text style={styles.cardDesc}>{r.description}</Text>}
               <Text style={styles.cardTime}>{format(new Date(r.remind_at), "EEE, MMM d · h:mm a")}</Text>
             </View>
-            <TouchableOpacity onPress={() => onDelete(r.id)} testID={`del-${r.id}`}>
+            <TouchableOpacity onPress={() => onEdit(r.id)} testID={`edit-${r.id}`} style={styles.iconBtnEdit}>
+              <Ionicons name="create-outline" size={18} color={C.brand} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => onDelete(r.id, r.title)} testID={`del-${r.id}`} style={styles.iconBtnDel}>
               <Ionicons name="trash-outline" size={18} color={C.danger} />
             </TouchableOpacity>
           </View>
@@ -110,4 +125,6 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 15, fontWeight: "700", color: C.text },
   cardDesc: { fontSize: 12, color: C.text2, marginTop: 2 },
   cardTime: { fontSize: 11, color: C.accent, fontWeight: "600", marginTop: 4 },
+  iconBtnEdit: { width: 36, height: 36, borderRadius: 10, backgroundColor: "#EFF3DC", alignItems: "center", justifyContent: "center", marginRight: 4 },
+  iconBtnDel: { width: 36, height: 36, borderRadius: 10, backgroundColor: "#FCE4E1", alignItems: "center", justifyContent: "center" },
 });

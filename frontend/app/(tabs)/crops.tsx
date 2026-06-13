@@ -1,12 +1,13 @@
 import { useState, useCallback } from "react";
 import {
-  View, Text, ScrollView, StyleSheet, TouchableOpacity, ImageBackground, Alert,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity, ImageBackground,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "../../src/api";
 import { C, S } from "../../src/theme";
+import { confirmAction, notify } from "../../src/confirm";
 
 const STAGE_COLORS: any = {
   seedling: "#A5C45A",
@@ -31,14 +32,20 @@ export default function CropsTab() {
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const onDelete = (id: string) =>
-    Alert.alert("Delete crop?", "", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete", style: "destructive",
-        onPress: async () => { await api.delete(`/crops/${id}`); load(); },
-      },
-    ]);
+  const onDelete = (id: string, name: string) =>
+    confirmAction(
+      `Delete "${name}"?`,
+      "This crop will be moved to Trash. You can restore it from Profile → Trash within 30 days.",
+      async () => {
+        try {
+          await api.delete(`/crops/${id}`);
+          notify("Moved to Trash", `${name} is now in Trash`);
+          load();
+        } catch (e: any) {
+          notify("Failed", e?.response?.data?.detail || "Try again");
+        }
+      }
+    );
 
   return (
     <SafeAreaView style={styles.c} edges={["top"]}>

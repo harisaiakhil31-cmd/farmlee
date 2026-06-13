@@ -20,8 +20,8 @@ import os, logging, secrets, bcrypt, jwt, uuid, smtplib, ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pathlib import Path
-from pydantic import BaseModel, EmailStr
-from typing import List, Optional
+from pydantic import BaseModel, EmailStr, Field
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
@@ -120,6 +120,36 @@ async def admin_required(user=Depends(current_user)):
     return user
 
 
+async def _soft_delete(coll_name: str, item_id: str, user: dict, extra_filter: Optional[dict] = None) -> bool:
+    """Move an item to the trash collection instead of permanent delete. Returns True if found+moved."""
+    coll = db[coll_name]
+    q = {"id": item_id}
+    if extra_filter: q.update(extra_filter)
+    item = await coll.find_one(q, {"_id": 0})
+    if not item:
+        return False
+    trash_doc = {
+        "id": str(uuid.uuid4()),
+        "collection_name": coll_name,
+        "original_id": item_id,
+        "item": item,
+        "deleted_at": now_utc(),
+        "deleted_by": user["id"],
+        "deleted_by_name": user.get("name", user.get("email", "")),
+    }
+    await db.trash.insert_one(trash_doc.copy())
+    await coll.delete_one(q)
+    return True
+
+
+async def _purge_old_trash():
+    """Permanently delete trash items older than 30 days. Run hourly via APScheduler."""
+    cutoff = now_utc() - timedelta(days=30)
+    res = await db.trash.delete_many({"deleted_at": {"$lt": cutoff}})
+    if res.deleted_count:
+        logger.info(f"Purged {res.deleted_count} old trash items")
+
+
 # ---------- MODELS ----------
 class LoginIn(BaseModel):
     email: EmailStr; password: str; device: Optional[str] = "unknown"
@@ -172,6 +202,7 @@ class WeeklyCheckIn(BaseModel):
     nutrition_notes: str = ""
     tank_filters_cleaned: bool = False
     notes: str = ""
+    task_results: Dict[str, Any] = Field(default_factory=dict)  # {task_id: {done: bool, notes: str}}
 
 class MonthlyCheckIn(BaseModel):
     check_date: str
@@ -185,6 +216,7 @@ class MonthlyCheckIn(BaseModel):
     seeds_qty_ok: bool = False
     seeds_ordered: bool = False
     notes: str = ""
+    task_results: Dict[str, Any] = Field(default_factory=dict)
 
 class CropStage(BaseModel):
     name: str; ph_min: float; ph_max: float; ec_min: float; ec_max: float
@@ -288,6 +320,33 @@ class TankAssignmentIn(BaseModel):
     crop_id: Optional[str] = None
     stage_index: int = 0
     notes: str = ""
+
+
+class InventoryItemIn(BaseModel):
+    name: str
+    type: str = "other"  # seed | solution_a | solution_b | solution_c | nutrient | fertilizer | other
+    quantity: float = 0
+    unit: str = "kg"
+    threshold: float = 0
+    supplier: str = ""
+    cost_per_unit: Optional[float] = None
+    expiry_date: Optional[str] = None  # ISO date string yyyy-MM-dd
+    last_restocked: Optional[str] = None
+    notes: str = ""
+
+
+class TowerStatusIn(BaseModel):
+    status: str  # healthy | issue | maintenance | empty
+    note: Optional[str] = ""
+    photo_b64: Optional[str] = None  # base64 data url of photo
+
+
+class TaskTemplateIn(BaseModel):
+    name: str
+    description: str = ""
+    frequency: str = "weekly"  # weekly | monthly
+    order: int = 0
+    active: bool = True
 
 
 # ---------- AUTH + AUDIT ----------
@@ -395,8 +454,7 @@ async def update_tank(rid: str, body: TankReadingIn, user=Depends(current_user))
 
 @api.delete("/tanks/reading/{rid}")
 async def delete_tank(rid: str, user=Depends(current_user)):
-    r = await db.tank_readings.delete_one({"id": rid})
-    if r.deleted_count == 0: raise HTTPException(404, "Tank reading not found")
+    if not await _soft_delete("tank_readings", rid, user): raise HTTPException(404, "Tank reading not found")
     return {"ok": True}
 
 
@@ -472,8 +530,7 @@ async def update_env(rid: str, body: EnvironmentReadingIn, user=Depends(current_
 
 @api.delete("/environment/reading/{rid}")
 async def delete_env(rid: str, user=Depends(current_user)):
-    r = await db.environment_readings.delete_one({"id": rid})
-    if r.deleted_count == 0: raise HTTPException(404, "Environment reading not found")
+    if not await _soft_delete("environment_readings", rid, user): raise HTTPException(404, "Environment reading not found")
     return {"ok": True}
 
 
@@ -499,8 +556,7 @@ async def update_field(rid: str, body: FieldTaskIn, user=Depends(current_user)):
 
 @api.delete("/field/tasks/{rid}")
 async def delete_field(rid: str, user=Depends(current_user)):
-    r = await db.field_tasks.delete_one({"id": rid})
-    if r.deleted_count == 0: raise HTTPException(404, "Field task not found")
+    if not await _soft_delete("field_tasks", rid, user): raise HTTPException(404, "Field task not found")
     return {"ok": True}
 
 
@@ -524,8 +580,7 @@ async def update_weekly(rid: str, body: WeeklyCheckIn, user=Depends(current_user
 
 @api.delete("/checks/weekly/{rid}")
 async def delete_weekly(rid: str, user=Depends(current_user)):
-    r = await db.weekly_checks.delete_one({"id": rid})
-    if r.deleted_count == 0: raise HTTPException(404, "Weekly check not found")
+    if not await _soft_delete("weekly_checks", rid, user): raise HTTPException(404, "Weekly check not found")
     return {"ok": True}
 
 @api.post("/checks/monthly")
@@ -547,8 +602,7 @@ async def update_monthly(rid: str, body: MonthlyCheckIn, user=Depends(current_us
 
 @api.delete("/checks/monthly/{rid}")
 async def delete_monthly(rid: str, user=Depends(current_user)):
-    r = await db.monthly_checks.delete_one({"id": rid})
-    if r.deleted_count == 0: raise HTTPException(404, "Monthly check not found")
+    if not await _soft_delete("monthly_checks", rid, user): raise HTTPException(404, "Monthly check not found")
     return {"ok": True}
 
 
@@ -665,7 +719,8 @@ async def update_crop(cid: str, body: CropIn, user=Depends(current_user)):
 
 @api.delete("/crops/{cid}")
 async def delete_crop(cid: str, user=Depends(current_user)):
-    await db.crops.delete_one({"id": cid}); return {"ok": True}
+    if not await _soft_delete("crops", cid, user): raise HTTPException(404, "Crop not found")
+    return {"ok": True}
 
 
 # ---------- REMINDERS ----------
@@ -681,9 +736,237 @@ async def create_reminder(body: ReminderIn, user=Depends(current_user)):
               "fired": False, "created_at": now_utc()})
     await db.reminders.insert_one(r.copy()); r.pop("_id", None); return r
 
+@api.put("/reminders/{rid}")
+async def update_reminder(rid: str, body: ReminderIn, user=Depends(current_user)):
+    upd = body.model_dump()
+    if upd["remind_at"].tzinfo is None: upd["remind_at"] = upd["remind_at"].replace(tzinfo=timezone.utc)
+    upd["updated_at"] = now_utc()
+    upd["fired"] = False  # un-fire if user reschedules to future
+    r = await db.reminders.update_one({"id": rid, "user_id": user["id"]}, {"$set": upd})
+    if r.matched_count == 0: raise HTTPException(404, "Reminder not found")
+    return await db.reminders.find_one({"id": rid}, {"_id": 0})
+
 @api.delete("/reminders/{rid}")
 async def delete_reminder(rid: str, user=Depends(current_user)):
-    await db.reminders.delete_one({"id": rid, "user_id": user["id"]}); return {"ok": True}
+    if not await _soft_delete("reminders", rid, user, extra_filter={"user_id": user["id"]}):
+        raise HTTPException(404, "Reminder not found")
+    return {"ok": True}
+
+
+# ---------- TRASH (soft-delete bin) ----------
+@api.get("/trash")
+async def list_trash(user=Depends(current_user)):
+    items = await db.trash.find({}, {"_id": 0}).sort("deleted_at", -1).to_list(2000)
+    # Group counts by collection for the UI
+    groups: dict = {}
+    for it in items:
+        c = it.get("collection_name", "?")
+        groups[c] = groups.get(c, 0) + 1
+    return {"items": items, "counts": groups, "purge_after_days": 30}
+
+@api.post("/trash/{trash_id}/restore")
+async def restore_trash(trash_id: str, user=Depends(current_user)):
+    t = await db.trash.find_one({"id": trash_id}, {"_id": 0})
+    if not t: raise HTTPException(404, "Trash item not found")
+    coll = db[t["collection_name"]]
+    item = dict(t["item"])
+    item.pop("_id", None)
+    item["restored_at"] = now_utc()
+    item["restored_by"] = user["id"]
+    await coll.insert_one(item.copy())
+    await db.trash.delete_one({"id": trash_id})
+    return {"ok": True, "collection": t["collection_name"], "id": t["original_id"]}
+
+@api.delete("/trash/{trash_id}")
+async def purge_trash_item(trash_id: str, user=Depends(current_user)):
+    r = await db.trash.delete_one({"id": trash_id})
+    if r.deleted_count == 0: raise HTTPException(404, "Trash item not found")
+    return {"ok": True}
+
+@api.delete("/trash")
+async def purge_all_trash(admin=Depends(admin_required)):
+    r = await db.trash.delete_many({})
+    return {"purged": r.deleted_count}
+
+
+# ---------- INVENTORY ----------
+@api.get("/inventory")
+async def list_inventory(user=Depends(current_user)):
+    items = await db.inventory.find({}, {"_id": 0}).sort("name", 1).to_list(1000)
+    # Tag low-stock for UI convenience
+    for it in items:
+        try: it["low_stock"] = float(it.get("quantity", 0)) <= float(it.get("threshold", 0))
+        except Exception: it["low_stock"] = False
+    return items
+
+@api.post("/inventory")
+async def create_inventory(body: InventoryItemIn, user=Depends(current_user)):
+    d = body.model_dump()
+    d.update({"id": str(uuid.uuid4()), "created_at": now_utc(), "created_by": user["id"], "created_by_name": user.get("name", "")})
+    await db.inventory.insert_one(d.copy()); d.pop("_id", None); return d
+
+@api.put("/inventory/{iid}")
+async def update_inventory(iid: str, body: InventoryItemIn, user=Depends(current_user)):
+    upd = body.model_dump()
+    upd["updated_at"] = now_utc(); upd["updated_by"] = user["id"]
+    r = await db.inventory.update_one({"id": iid}, {"$set": upd})
+    if r.matched_count == 0: raise HTTPException(404, "Inventory item not found")
+    return await db.inventory.find_one({"id": iid}, {"_id": 0})
+
+@api.delete("/inventory/{iid}")
+async def delete_inventory(iid: str, user=Depends(current_user)):
+    if not await _soft_delete("inventory", iid, user): raise HTTPException(404, "Inventory item not found")
+    return {"ok": True}
+
+
+# ---------- ROWS & TOWERS ----------
+ROWS = ["A", "B", "C", "D", "E"]
+TOWERS_PER_ROW = 60
+
+async def _ensure_towers_seeded():
+    """Idempotently seed 5×60 towers if missing."""
+    n = await db.towers.count_documents({})
+    if n >= len(ROWS) * TOWERS_PER_ROW: return
+    docs = []
+    for row in ROWS:
+        for pos in range(1, TOWERS_PER_ROW + 1):
+            existing = await db.towers.find_one({"row": row, "position": pos})
+            if existing: continue
+            docs.append({
+                "id": str(uuid.uuid4()),
+                "row": row,
+                "position": pos,
+                "status": "healthy",
+                "note": "",
+                "photo_b64": None,
+                "last_status_change": None,
+                "last_status_by": None,
+                "last_status_by_name": None,
+                "created_at": now_utc(),
+            })
+    if docs:
+        await db.towers.insert_many(docs)
+        logger.info(f"Seeded {len(docs)} towers")
+
+@api.get("/towers")
+async def list_towers(user=Depends(current_user)):
+    await _ensure_towers_seeded()
+    towers = await db.towers.find({}, {"_id": 0}).sort([("row", 1), ("position", 1)]).to_list(1000)
+    # Summary counts by status
+    summary: dict = {"healthy": 0, "issue": 0, "maintenance": 0, "empty": 0}
+    for t in towers: summary[t.get("status", "healthy")] = summary.get(t.get("status", "healthy"), 0) + 1
+    return {"towers": towers, "summary": summary, "rows": ROWS, "towers_per_row": TOWERS_PER_ROW}
+
+@api.get("/towers/issues")
+async def list_tower_issues(user=Depends(current_user)):
+    """Towers currently flagged with status=issue (for home screen banner)."""
+    await _ensure_towers_seeded()
+    return await db.towers.find({"status": "issue"}, {"_id": 0}).sort("last_status_change", -1).to_list(500)
+
+@api.put("/towers/{tower_id}")
+async def update_tower_status(tower_id: str, body: TowerStatusIn, user=Depends(current_user)):
+    if body.status not in ("healthy", "issue", "maintenance", "empty"):
+        raise HTTPException(400, "status must be healthy|issue|maintenance|empty")
+    tower = await db.towers.find_one({"id": tower_id}, {"_id": 0})
+    if not tower: raise HTTPException(404, "Tower not found")
+    prev_status = tower.get("status", "healthy")
+    upd = {
+        "status": body.status,
+        "note": body.note or "",
+        "photo_b64": body.photo_b64,
+        "last_status_change": now_utc(),
+        "last_status_by": user["id"],
+        "last_status_by_name": user.get("name", user.get("email", "")),
+    }
+    await db.towers.update_one({"id": tower_id}, {"$set": upd})
+    # Append log entry
+    log_doc = {
+        "id": str(uuid.uuid4()),
+        "tower_id": tower_id,
+        "row": tower["row"],
+        "position": tower["position"],
+        "prev_status": prev_status,
+        "new_status": body.status,
+        "note": body.note or "",
+        "photo_b64": body.photo_b64,
+        "by_user_id": user["id"],
+        "by_user_name": user.get("name", user.get("email", "")),
+        "at": now_utc(),
+    }
+    await db.tower_logs.insert_one(log_doc.copy())
+    # Notify admin via email if status changed TO issue
+    if body.status == "issue" and prev_status != "issue":
+        admin_email = ADMIN_EMAIL.lower()
+        send_email(
+            admin_email,
+            f"⚠️ Farmlee: Tower {tower['row']}-{tower['position']} flagged as ISSUE",
+            f"<div style='font-family:Arial;padding:24px;background:#F9F8F6'>"
+            f"<h2 style='color:#CC7753'>Tower issue reported</h2>"
+            f"<p><b>Row {tower['row']}, Tower {tower['position']}</b> was just marked as <b>ISSUE</b>.</p>"
+            f"<p><b>Reported by:</b> {user.get('name','')} ({user['email']})</p>"
+            f"<p><b>Note:</b> {body.note or '(no note)'}</p>"
+            f"<p>Open the app to inspect.</p></div>"
+        )
+    return await db.towers.find_one({"id": tower_id}, {"_id": 0})
+
+@api.get("/towers/{tower_id}/logs")
+async def tower_logs(tower_id: str, user=Depends(current_user)):
+    return await db.tower_logs.find({"tower_id": tower_id}, {"_id": 0}).sort("at", -1).to_list(200)
+
+@api.get("/towers/logs/recent")
+async def recent_tower_logs(user=Depends(current_user)):
+    return await db.tower_logs.find({}, {"_id": 0}).sort("at", -1).to_list(50)
+
+
+# ---------- DYNAMIC WEEKLY/MONTHLY TASK TEMPLATES ----------
+@api.get("/tasks")
+async def list_tasks(frequency: Optional[str] = None, user=Depends(current_user)):
+    q: dict = {"active": True}
+    if frequency: q["frequency"] = frequency
+    return await db.task_templates.find(q, {"_id": 0}).sort("order", 1).to_list(500)
+
+@api.post("/tasks")
+async def create_task(body: TaskTemplateIn, user=Depends(current_user)):
+    if body.frequency not in ("weekly", "monthly"): raise HTTPException(400, "frequency must be weekly|monthly")
+    d = body.model_dump()
+    d.update({"id": str(uuid.uuid4()), "created_at": now_utc(), "created_by": user["id"]})
+    await db.task_templates.insert_one(d.copy()); d.pop("_id", None); return d
+
+@api.put("/tasks/{tid}")
+async def update_task(tid: str, body: TaskTemplateIn, user=Depends(current_user)):
+    if body.frequency not in ("weekly", "monthly"): raise HTTPException(400, "frequency must be weekly|monthly")
+    upd = body.model_dump(); upd["updated_at"] = now_utc()
+    r = await db.task_templates.update_one({"id": tid}, {"$set": upd})
+    if r.matched_count == 0: raise HTTPException(404, "Task not found")
+    return await db.task_templates.find_one({"id": tid}, {"_id": 0})
+
+@api.delete("/tasks/{tid}")
+async def delete_task(tid: str, user=Depends(current_user)):
+    if not await _soft_delete("task_templates", tid, user): raise HTTPException(404, "Task not found")
+    return {"ok": True}
+
+
+# ---------- ENVIRONMENT HISTORY (date-range) ----------
+@api.get("/environment/history")
+async def env_history(start: Optional[str] = None, end: Optional[str] = None, user=Depends(current_user)):
+    """List environment readings with optional date range. Returns items grouped by date."""
+    q: dict = {}
+    if start and end: q["check_date"] = {"$gte": start, "$lte": end}
+    elif start: q["check_date"] = {"$gte": start}
+    elif end: q["check_date"] = {"$lte": end}
+    items = await db.environment_readings.find(q, {"_id": 0}).sort([("check_date", -1), ("check_time", -1)]).to_list(2000)
+    # Build daily averages
+    by_day: dict = {}
+    for it in items:
+        d = it.get("check_date", "")
+        by_day.setdefault(d, {"date": d, "items": [], "avg_temp": None, "avg_hum": None})
+        by_day[d]["items"].append(it)
+    for d, g in by_day.items():
+        if g["items"]:
+            g["avg_temp"] = round(sum(i["temperature"] for i in g["items"]) / len(g["items"]), 1)
+            g["avg_hum"] = round(sum(i["humidity"] for i in g["items"]) / len(g["items"]), 1)
+    days = sorted(by_day.values(), key=lambda x: x["date"], reverse=True)
+    return {"items": items, "days": days, "total": len(items)}
 
 
 # ---------- ADMIN AUDIT LOG (gated by extra OTP) ----------
@@ -992,7 +1275,21 @@ async def startup():
              ], "notes": "", "created_at": now_utc()},
         ]
         await db.seedling_types.insert_many(seedling_examples); logger.info("Seeded seedling types")
+    await _ensure_towers_seeded()
+    # Seed default weekly+monthly task templates if none exist
+    if await db.task_templates.count_documents({}) == 0:
+        defaults = [
+            {"id": str(uuid.uuid4()), "name": "Meters calibrated", "description": "Calibrate pH & EC meters", "frequency": "weekly", "order": 0, "active": True, "created_at": now_utc()},
+            {"id": str(uuid.uuid4()), "name": "Nutrition quantity OK", "description": "Check nutrient solution quantity is sufficient", "frequency": "weekly", "order": 1, "active": True, "created_at": now_utc()},
+            {"id": str(uuid.uuid4()), "name": "Tank filters cleaned", "description": "Clean all tank filters", "frequency": "weekly", "order": 2, "active": True, "created_at": now_utc()},
+            {"id": str(uuid.uuid4()), "name": "Tanks cleaned", "description": "Drain & clean each tank thoroughly", "frequency": "monthly", "order": 0, "active": True, "created_at": now_utc()},
+            {"id": str(uuid.uuid4()), "name": "Salt formation check", "description": "Inspect lines/tanks for salt build-up", "frequency": "monthly", "order": 1, "active": True, "created_at": now_utc()},
+            {"id": str(uuid.uuid4()), "name": "Solutions A/B/C ordered", "description": "Verify A/B/C solutions stock & reorder if needed", "frequency": "monthly", "order": 2, "active": True, "created_at": now_utc()},
+            {"id": str(uuid.uuid4()), "name": "Seeds stock check", "description": "Check seed inventory & reorder if needed", "frequency": "monthly", "order": 3, "active": True, "created_at": now_utc()},
+        ]
+        await db.task_templates.insert_many(defaults); logger.info("Seeded default weekly+monthly task templates")
     scheduler.add_job(reminder_worker, "interval", minutes=1, id="reminder_worker", replace_existing=True)
+    scheduler.add_job(_purge_old_trash, "interval", hours=6, id="purge_trash", replace_existing=True)
     if not scheduler.running: scheduler.start()
 
 

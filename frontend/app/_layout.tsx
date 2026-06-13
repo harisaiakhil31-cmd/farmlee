@@ -30,6 +30,13 @@ export default function RootLayout() {
           <Stack.Screen name="seedling-new" options={{ presentation: "modal" }} />
           <Stack.Screen name="seedling-batch" options={{ presentation: "modal" }} />
           <Stack.Screen name="seedling-types" options={{ presentation: "modal" }} />
+          <Stack.Screen name="trash" options={{ presentation: "modal" }} />
+          <Stack.Screen name="inventory" options={{ presentation: "modal" }} />
+          <Stack.Screen name="inventory-edit" options={{ presentation: "modal" }} />
+          <Stack.Screen name="rows" options={{ presentation: "modal" }} />
+          <Stack.Screen name="tower-detail" options={{ presentation: "modal" }} />
+          <Stack.Screen name="environment-history" options={{ presentation: "modal" }} />
+          <Stack.Screen name="tasks-manage" options={{ presentation: "modal" }} />
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>

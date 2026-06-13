@@ -125,6 +125,41 @@ export default function ProfileTab() {
           <Ionicons name="chevron-forward" size={20} color={C.text2} />
         </TouchableOpacity>
 
+        <Text style={styles.section}>OPERATIONS</Text>
+
+        <TouchableOpacity style={styles.linkRow} onPress={() => router.push("/rows")} testID="rows-btn">
+          <View style={[styles.linkIcon, { backgroundColor: "#EFF3DC" }]}>
+            <Ionicons name="grid-outline" size={20} color={C.brand} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.infoTitle}>Rows & Towers</Text>
+            <Text style={styles.infoSub}>5 rows × 60 towers · status + issue log</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={C.text2} />
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.linkRow} onPress={() => router.push("/inventory")} testID="inventory-btn">
+          <View style={[styles.linkIcon, { backgroundColor: "#FFF4EC" }]}>
+            <Ionicons name="cube-outline" size={20} color={C.accent} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.infoTitle}>Inventory</Text>
+            <Text style={styles.infoSub}>Seeds, solutions, nutrients · low-stock alerts</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={C.text2} />
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.linkRow} onPress={() => router.push("/trash")} testID="trash-btn">
+          <View style={[styles.linkIcon, { backgroundColor: "#FCE4E1" }]}>
+            <Ionicons name="trash-bin-outline" size={20} color={C.danger} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.infoTitle}>Trash</Text>
+            <Text style={styles.infoSub}>Restore deleted items (auto-purged after 30 days)</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={C.text2} />
+        </TouchableOpacity>
+
         {user?.role === "admin" && (
           <TouchableOpacity
             style={styles.linkRow}

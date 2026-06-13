@@ -14,13 +14,18 @@ export default function Dashboard() {
   const [data, setData] = useState<any>(null);
   const [user, setUser] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [towerIssues, setTowerIssues] = useState<any[]>([]);
 
   const load = useCallback(async () => {
     try {
       const u = await getUser();
       setUser(u);
-      const r = await api.get("/dashboard");
+      const [r, iRes] = await Promise.all([
+        api.get("/dashboard"),
+        api.get("/towers/issues").catch(() => ({ data: [] })),
+      ]);
       setData(r.data);
+      setTowerIssues(iRes.data || []);
     } catch (err) {
       console.error("Dashboard load failed:", err);
     }
@@ -65,6 +70,27 @@ export default function Dashboard() {
           </TouchableOpacity>
         </View>
 
+        {/* Tower issues banner (auto-shows when any tower has status=issue) */}
+        {towerIssues.length > 0 && (
+          <TouchableOpacity
+            style={styles.issuesBanner}
+            onPress={() => router.push("/rows")}
+            testID="tower-issues-banner"
+          >
+            <View style={styles.issuesIcon}><Ionicons name="warning" size={22} color="#fff" /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.issuesTitle}>
+                {towerIssues.length} tower{towerIssues.length !== 1 ? "s" : ""} need{towerIssues.length === 1 ? "s" : ""} attention
+              </Text>
+              <Text style={styles.issuesSub} numberOfLines={1}>
+                {towerIssues.slice(0, 3).map((t) => `${t.row}-${t.position}`).join(", ")}
+                {towerIssues.length > 3 ? "  +" + (towerIssues.length - 3) + " more" : ""}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#fff" />
+          </TouchableOpacity>
+        )}
+
         {/* Hero progress card */}
         <ImageBackground
           source={{ uri: "https://images.unsplash.com/photo-1608101913822-5343e10fceba?crop=entropy&cs=srgb&fm=jpg&w=900&q=70" }}
@@ -93,6 +119,8 @@ export default function Dashboard() {
           {user?.role === "admin" && (
             <ActionCard testID="action-audit" tint="#FCE4E1" icon="shield-checkmark" label="Audit log" sub="Admin · login history" onPress={() => router.push("/checks/audit")} />
           )}
+          <ActionCard testID="action-rows" tint="#E8F6E8" icon="grid" label="Rows & Towers" sub="5 rows · 60 towers each" onPress={() => router.push("/rows")} />
+          <ActionCard testID="action-inventory" tint="#FFF4D6" icon="cube" label="Inventory" sub="Seeds · solutions · stock" onPress={() => router.push("/inventory")} />
         </View>
 
         {/* Last reading */}
@@ -209,6 +237,14 @@ const styles = StyleSheet.create({
   progressFill: { height: 6, backgroundColor: "#CC7753", borderRadius: 3 },
   section: { fontSize: 11, fontWeight: "700", color: C.text2, letterSpacing: 2, marginTop: S.md, marginBottom: S.sm },
   bento: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  issuesBanner: {
+    flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: C.danger,
+    borderRadius: 16, padding: 14, marginBottom: S.md,
+    shadowColor: C.danger, shadowOpacity: 0.25, shadowOffset: { width: 0, height: 4 }, shadowRadius: 12,
+  },
+  issuesIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
+  issuesTitle: { color: "#fff", fontWeight: "800", fontSize: 14, letterSpacing: 0.3 },
+  issuesSub: { color: "#FCEDE9", fontSize: 11, marginTop: 2, fontWeight: "600" },
   action: { width: "48%", borderRadius: 20, padding: S.md, minHeight: 120, justifyContent: "space-between" },
   actionIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.6)", alignItems: "center", justifyContent: "center" },
   actionLabel: { fontSize: 17, fontWeight: "700", color: C.text, marginTop: S.sm },

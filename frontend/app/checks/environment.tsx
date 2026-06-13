@@ -65,8 +65,15 @@ export default function Environment() {
     <SafeAreaView style={s.c} edges={["top"]}>
       <View style={s.head}>
         <TouchableOpacity onPress={() => router.back()}><Ionicons name="close" size={26} color={C.text} /></TouchableOpacity>
-        <Text style={s.title}>Environment (Unit)</Text>
-        <View style={{ width: 26 }} />
+        <Text style={s.title}>{editingId ? "Edit env reading" : "Environment"}</Text>
+        <View style={{ flexDirection: "row", gap: 6 }}>
+          <TouchableOpacity onPress={() => router.push("/environment-history")} style={s.headIcon} testID="env-fullhistory-btn">
+            <Ionicons name="bar-chart-outline" size={20} color={C.text} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setHistoryOpen(true)} style={s.headIcon} testID="env-history-btn">
+            <Ionicons name="time-outline" size={20} color={C.text} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{flex:1}}>
